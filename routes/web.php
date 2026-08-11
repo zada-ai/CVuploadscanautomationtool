@@ -101,6 +101,10 @@ Route::middleware('auth')->group(function () {
     )->name('admin.candidates.download.zip');
 
 });
+Route::post('/admin/candidates/delete', [
+    CandidateDownloadController::class,
+    'deleteSelected'
+])->name('admin.candidates.delete');
 
 
 /*

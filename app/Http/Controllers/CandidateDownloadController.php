@@ -3,11 +3,18 @@
 namespace App\Http\Controllers;
 
 use App\Models\Candidate;
+use App\Models\CandidateSkill;
+use App\Models\CandidateExperience;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 use ZipArchive;
 
 class CandidateDownloadController extends Controller
 {
+    /**
+     * Download selected CVs as ZIP
+     */
     public function downloadZip(Request $request)
     {
         $request->validate([
@@ -33,8 +40,12 @@ class CandidateDownloadController extends Controller
 
         $zip = new ZipArchive();
 
-        if ($zip->open($zipPath, ZipArchive::CREATE | ZipArchive::OVERWRITE) !== true) {
-
+        if (
+            $zip->open(
+                $zipPath,
+                ZipArchive::CREATE | ZipArchive::OVERWRITE
+            ) !== true
+        ) {
             return back()->with(
                 'error',
                 'Unable to create ZIP file.'
@@ -114,5 +125,91 @@ class CandidateDownloadController extends Controller
                 $zipName
             )
             ->deleteFileAfterSend(true);
+    }
+
+
+    /**
+     * Permanently delete selected candidates,
+     * their skills, experiences and uploaded CV files.
+     */
+    public function deleteSelected(Request $request)
+    {
+        $request->validate([
+            'candidate_ids' => 'required|array|min:1',
+            'candidate_ids.*' => 'integer|exists:candidates,id',
+        ]);
+
+        $candidates = Candidate::whereIn(
+            'id',
+            $request->candidate_ids
+        )->get();
+
+        if ($candidates->isEmpty()) {
+            return back()->with(
+                'error',
+                'No candidates were selected.'
+            );
+        }
+
+        try {
+
+            DB::transaction(function () use ($candidates) {
+
+                foreach ($candidates as $candidate) {
+
+                    /*
+                     * Delete uploaded CV file.
+                     *
+                     * Example:
+                     * storage/app/public/cvs/example.pdf
+                     */
+                    if ($candidate->cv_file) {
+
+                        Storage::disk('public')->delete(
+                            $candidate->cv_file
+                        );
+                    }
+
+
+                    /*
+                     * Delete candidate skills.
+                     */
+                    CandidateSkill::where(
+                        'candidate_id',
+                        $candidate->id
+                    )->delete();
+
+
+                    /*
+                     * Delete candidate experiences.
+                     */
+                    CandidateExperience::where(
+                        'candidate_id',
+                        $candidate->id
+                    )->delete();
+
+
+                    /*
+                     * Delete candidate record.
+                     */
+                    $candidate->delete();
+                }
+            });
+
+            return back()->with(
+                'success',
+                $candidates->count() .
+                ' CV(s) and all related candidate data deleted successfully.'
+            );
+
+        } catch (\Throwable $e) {
+
+            report($e);
+
+            return back()->with(
+                'error',
+                'Unable to delete the selected CVs. Please try again.'
+            );
+        }
     }
 }
