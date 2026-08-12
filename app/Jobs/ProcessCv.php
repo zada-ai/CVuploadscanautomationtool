@@ -11,10 +11,6 @@ use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use OpenAI\Laravel\Facades\OpenAI;
-use PhpOffice\PhpWord\IOFactory;
-use Smalot\PdfParser\Parser as PdfParser;
-use Symfony\Component\Process\Process;
-use thiagoalessio\TesseractOCR\TesseractOCR;
 
 class ProcessCv implements ShouldQueue
 {
@@ -58,7 +54,10 @@ class ProcessCv implements ShouldQueue
             return;
         }
 
+        $openAiFileId = null;
+
         try {
+
             /*
             |--------------------------------------------------------------------------
             | STEP 1: Get CV file
@@ -83,40 +82,84 @@ class ProcessCv implements ShouldQueue
 
             /*
             |--------------------------------------------------------------------------
-            | STEP 2: Extract text
+            | STEP 2: Detect file type
             |--------------------------------------------------------------------------
             */
 
-            $text = $this->extractTextFromFile(
-                $fullPath,
-                $candidate->cv_mime_type
+            $extension = strtolower(
+                pathinfo($fullPath, PATHINFO_EXTENSION)
             );
+
+            $mimeType = $candidate->cv_mime_type
+                ?: mime_content_type($fullPath);
+
+            Log::info('Starting direct OpenAI CV processing.', [
+                'candidate_id' => $candidate->id,
+                'file' => $filePath,
+                'extension' => $extension,
+                'mime_type' => $mimeType,
+            ]);
 
             /*
             |--------------------------------------------------------------------------
-            | STEP 3: Normalize text
+            | STEP 3: Validate supported CV types
             |--------------------------------------------------------------------------
             */
 
-            $text = $this->normalizeText($text);
+            $supportedExtensions = [
+                'pdf',
+                'doc',
+                'docx',
+                'jpg',
+                'jpeg',
+                'png',
+                'webp',
+            ];
 
-            if (trim($text) === '') {
+            if (!in_array($extension, $supportedExtensions, true)) {
                 throw new \RuntimeException(
-                    'No readable text could be extracted from the CV.'
+                    'Unsupported CV file type: ' . $extension
                 );
             }
 
             /*
             |--------------------------------------------------------------------------
-            | STEP 4: Send CV text to OpenAI
+            | STEP 4: Upload original CV directly to OpenAI
             |--------------------------------------------------------------------------
+            |
+            | No Tesseract
+            | No Poppler
+            | No PDF parser
+            | No PHPWord
+            |
             */
 
-            $data = $this->extractCvDataWithAI($text);
+            $uploadedFile = OpenAI::files()->upload([
+                'purpose' => 'user_data',
+                'file' => fopen($fullPath, 'r'),
+            ]);
+
+            $openAiFileId = $uploadedFile->id;
+
+            Log::info('CV uploaded to OpenAI successfully.', [
+                'candidate_id' => $candidate->id,
+                'openai_file_id' => $openAiFileId,
+            ]);
 
             /*
             |--------------------------------------------------------------------------
-            | STEP 5: Update candidate
+            | STEP 5: Send CV directly to OpenAI
+            |--------------------------------------------------------------------------
+            */
+
+            $data = $this->extractCvDataWithAI(
+                $openAiFileId,
+                $extension
+            );
+
+            /*
+            |--------------------------------------------------------------------------
+            | STEP 6: Update candidate
             |--------------------------------------------------------------------------
             */
 
@@ -131,7 +174,7 @@ class ProcessCv implements ShouldQueue
 
             /*
             |--------------------------------------------------------------------------
-            | STEP 6: Save skills
+            | STEP 7: Save skills
             |--------------------------------------------------------------------------
             */
 
@@ -142,7 +185,7 @@ class ProcessCv implements ShouldQueue
 
             /*
             |--------------------------------------------------------------------------
-            | STEP 7: Save work experiences
+            | STEP 8: Save work experiences
             |--------------------------------------------------------------------------
             */
 
@@ -151,7 +194,13 @@ class ProcessCv implements ShouldQueue
                 $data['work_experience'] ?? []
             );
 
-            Log::info('CV processed successfully.', [
+            /*
+            |--------------------------------------------------------------------------
+            | STEP 9: Mark successful processing
+            |--------------------------------------------------------------------------
+            */
+
+            Log::info('CV processed successfully by OpenAI.', [
                 'candidate_id' => $candidate->id,
                 'name' => $candidate->full_name,
             ]);
@@ -169,660 +218,398 @@ class ProcessCv implements ShouldQueue
             ]);
 
             throw $e;
-        }
-    }
-
-    /*
-    |--------------------------------------------------------------------------
-    | EXTRACT TEXT FROM FILE
-    |--------------------------------------------------------------------------
-    */
-
-    private function extractTextFromFile(
-        string $path,
-        ?string $mimeType
-    ): string {
-
-        $extension = strtolower(
-            pathinfo($path, PATHINFO_EXTENSION)
-        );
-
-        /*
-        |--------------------------------------------------------------------------
-        | PDF
-        |--------------------------------------------------------------------------
-        */
-
-        if (
-            $extension === 'pdf' ||
-            ($mimeType && str_contains($mimeType, 'pdf'))
-        ) {
-            return $this->parsePdfText($path);
-        }
-
-        /*
-        |--------------------------------------------------------------------------
-        | DOC / DOCX
-        |--------------------------------------------------------------------------
-        */
-
-        if (
-            in_array($extension, ['doc', 'docx'], true)
-        ) {
-            return $this->parseWordText($path);
-        }
-
-        /*
-        |--------------------------------------------------------------------------
-        | IMAGE
-        |--------------------------------------------------------------------------
-        */
-
-        if (
-            in_array(
-                $extension,
-                ['jpg', 'jpeg', 'png'],
-                true
-            )
-        ) {
-            return $this->ocrImage($path);
-        }
-
-        throw new \RuntimeException(
-            'Unsupported CV file type: ' . $extension
-        );
-    }
-
-    /*
-    |--------------------------------------------------------------------------
-    | PDF TEXT EXTRACTION
-    |--------------------------------------------------------------------------
-    */
-
-    private function parsePdfText(string $path): string
-    {
-        try {
-
-            /*
-            |--------------------------------------------------------------------------
-            | First try normal selectable PDF text
-            |--------------------------------------------------------------------------
-            */
-
-            $text = (new PdfParser())
-                ->parseFile($path)
-                ->getText();
-
-            if (trim($text) !== '') {
-                Log::info('PDF selectable text extracted successfully.', [
-                    'file' => $path,
-                ]);
-
-                return $text;
-            }
-
-        } catch (\Throwable $e) {
-
-            Log::warning(
-                'Normal PDF text extraction failed. Switching to OCR.',
-                [
-                    'file' => $path,
-                    'error' => $e->getMessage(),
-                ]
-            );
-        }
-
-        /*
-        |--------------------------------------------------------------------------
-        | Scanned / image based PDF
-        |--------------------------------------------------------------------------
-        |
-        | PDF -> PNG using Poppler -> OCR using Tesseract
-        |
-        |--------------------------------------------------------------------------
-        */
-
-        return $this->ocrPdf($path);
-    }
-
-    /*
-    |--------------------------------------------------------------------------
-    | OCR PDF
-    |--------------------------------------------------------------------------
-    |
-    | Converts every PDF page into PNG using pdftoppm.
-    | Then runs Tesseract OCR on every PNG page.
-    |
-    |--------------------------------------------------------------------------
-    */
-
-    private function ocrPdf(string $path): string
-    {
-        /*
-        |--------------------------------------------------------------------------
-        | Poppler executable
-        |--------------------------------------------------------------------------
-        |
-        | Local Windows:
-        | C:\poppler-26.02.0\Library\bin\pdftoppm.exe
-        |
-        | On live Linux server:
-        | /usr/bin/pdftoppm
-        |
-        | You can override using PDFTOPPM_PATH in .env
-        |
-        |--------------------------------------------------------------------------
-        */
-
-        $pdftoppm = env(
-            'PDFTOPPM_PATH',
-            'C:\\poppler-26.02.0\\Library\\bin\\pdftoppm.exe'
-        );
-
-        /*
-        |--------------------------------------------------------------------------
-        | Tesseract executable
-        |--------------------------------------------------------------------------
-        */
-
-        $tesseract = env(
-            'TESSERACT_PATH',
-            'C:\\Program Files\\Tesseract-OCR\\tesseract.exe'
-        );
-
-        if (!file_exists($pdftoppm)) {
-            throw new \RuntimeException(
-                'Poppler pdftoppm was not found at: ' . $pdftoppm
-            );
-        }
-
-        if (!file_exists($tesseract)) {
-            throw new \RuntimeException(
-                'Tesseract was not found at: ' . $tesseract
-            );
-        }
-
-        /*
-        |--------------------------------------------------------------------------
-        | Create temporary directory
-        |--------------------------------------------------------------------------
-        */
-
-        $tempDirectory = storage_path(
-            'app' . DIRECTORY_SEPARATOR . 'cv_ocr'
-        );
-
-        if (!is_dir($tempDirectory)) {
-            mkdir(
-                $tempDirectory,
-                0777,
-                true
-            );
-        }
-
-        /*
-        |--------------------------------------------------------------------------
-        | Unique OCR job directory
-        |--------------------------------------------------------------------------
-        */
-
-        $jobDirectory = $tempDirectory .
-            DIRECTORY_SEPARATOR .
-            uniqid('cv_', true);
-
-        if (!mkdir($jobDirectory, 0777, true) && !is_dir($jobDirectory)) {
-            throw new \RuntimeException(
-                'Could not create OCR temporary directory.'
-            );
-        }
-
-        /*
-        |--------------------------------------------------------------------------
-        | PNG output prefix
-        |--------------------------------------------------------------------------
-        */
-
-        $outputPrefix = $jobDirectory .
-            DIRECTORY_SEPARATOR .
-            'page';
-
-        try {
-
-            /*
-            |--------------------------------------------------------------------------
-            | Convert PDF pages to PNG
-            |--------------------------------------------------------------------------
-            |
-            | 200 DPI is a good balance between OCR quality and speed.
-            |
-            |--------------------------------------------------------------------------
-            */
-
-            $process = new Process([
-                $pdftoppm,
-                '-png',
-                '-r',
-                '200',
-                $path,
-                $outputPrefix,
-            ]);
-
-            $process->setTimeout(180);
-
-            $process->run();
-
-            if (!$process->isSuccessful()) {
-
-                throw new \RuntimeException(
-                    'PDF to image conversion failed: ' .
-                    $process->getErrorOutput()
-                );
-            }
-
-            /*
-            |--------------------------------------------------------------------------
-            | Find generated PNG pages
-            |--------------------------------------------------------------------------
-            */
-
-            $pages = glob(
-                $outputPrefix . '-*.png'
-            );
-
-            if (!$pages) {
-                throw new \RuntimeException(
-                    'Poppler did not generate any PNG pages.'
-                );
-            }
-
-            /*
-            |--------------------------------------------------------------------------
-            | Sort pages naturally
-            |--------------------------------------------------------------------------
-            */
-
-            natsort($pages);
-
-            $pages = array_values($pages);
-
-            /*
-            |--------------------------------------------------------------------------
-            | OCR every page
-            |--------------------------------------------------------------------------
-            */
-
-            $fullText = '';
-
-            foreach ($pages as $index => $page) {
-
-                Log::info('Running OCR on PDF page.', [
-                    'file' => $path,
-                    'page' => $index + 1,
-                    'total_pages' => count($pages),
-                ]);
-
-                try {
-
-                    $pageText = (new TesseractOCR($page))
-                        ->executable($tesseract)
-                        ->lang('eng')
-                        ->psm(6)
-                        ->run();
-
-                    if (trim($pageText) !== '') {
-
-                        $fullText .=
-                            "\n\n--- PAGE " .
-                            ($index + 1) .
-                            " ---\n\n" .
-                            $pageText;
-                    }
-
-                } catch (\Throwable $e) {
-
-                    Log::warning(
-                        'OCR failed for PDF page.',
-                        [
-                            'file' => $path,
-                            'page' => $index + 1,
-                            'error' => $e->getMessage(),
-                        ]
-                    );
-                }
-            }
-
-            if (trim($fullText) === '') {
-                throw new \RuntimeException(
-                    'Tesseract could not extract readable text from the scanned PDF.'
-                );
-            }
-
-            Log::info('Scanned PDF OCR completed successfully.', [
-                'file' => $path,
-                'pages' => count($pages),
-            ]);
-
-            return $fullText;
 
         } finally {
 
             /*
             |--------------------------------------------------------------------------
-            | Delete temporary PNG files
+            | STEP 10: Delete temporary OpenAI file
             |--------------------------------------------------------------------------
+            |
+            | We do not need to keep every uploaded CV inside OpenAI Files.
+            |
             */
 
-            $files = glob(
-                $jobDirectory .
-                DIRECTORY_SEPARATOR .
-                '*'
-            );
+            if ($openAiFileId) {
+                try {
+                    OpenAI::files()->delete($openAiFileId);
 
-            if ($files) {
+                    Log::info('Temporary OpenAI CV file deleted.', [
+                        'candidate_id' => $candidate->id,
+                        'openai_file_id' => $openAiFileId,
+                    ]);
 
-                foreach ($files as $file) {
+                } catch (\Throwable $e) {
 
-                    if (is_file($file)) {
-                        @unlink($file);
-                    }
+                    Log::warning(
+                        'Could not delete temporary OpenAI CV file.',
+                        [
+                            'candidate_id' => $candidate->id,
+                            'openai_file_id' => $openAiFileId,
+                            'error' => $e->getMessage(),
+                        ]
+                    );
                 }
             }
-
-            @rmdir($jobDirectory);
         }
     }
 
     /*
     |--------------------------------------------------------------------------
-    | WORD TEXT EXTRACTION
+    | OPENAI CV PARSER
     |--------------------------------------------------------------------------
     */
 
-    private function parseWordText(string $path): string
-    {
-        try {
-
-            $phpWord = IOFactory::load($path);
-
-            $text = '';
-
-            foreach ($phpWord->getSections() as $section) {
-
-                foreach ($section->getElements() as $element) {
-
-                    /*
-                    |--------------------------------------------------------------------------
-                    | Normal text
-                    |--------------------------------------------------------------------------
-                    */
-
-                    if (method_exists($element, 'getText')) {
-
-                        $value = $element->getText();
-
-                        if (is_string($value)) {
-                            $text .= $value . "\n";
-                        }
-                    }
-
-                    /*
-                    |--------------------------------------------------------------------------
-                    | Tables
-                    |--------------------------------------------------------------------------
-                    */
-
-                    if (method_exists($element, 'getRows')) {
-
-                        foreach ($element->getRows() as $row) {
-
-                            foreach ($row->getCells() as $cell) {
-
-                                foreach (
-                                    $cell->getElements()
-                                    as $cellElement
-                                ) {
-
-                                    if (
-                                        method_exists(
-                                            $cellElement,
-                                            'getText'
-                                        )
-                                    ) {
-
-                                        $value =
-                                            $cellElement->getText();
-
-                                        if (is_string($value)) {
-                                            $text .=
-                                                $value . ' ';
-                                        }
-                                    }
-                                }
-                            }
-
-                            $text .= "\n";
-                        }
-                    }
-                }
-            }
-
-            if (trim($text) !== '') {
-                return $text;
-            }
-
-            throw new \RuntimeException(
-                'Word document contains no readable text.'
-            );
-
-        } catch (\Throwable $e) {
-
-            Log::warning(
-                'Word extraction failed.',
-                [
-                    'file' => $path,
-                    'error' => $e->getMessage(),
-                ]
-            );
-
-            throw new \RuntimeException(
-                'Could not extract text from Word document: ' .
-                $e->getMessage()
-            );
-        }
-    }
-
-    /*
-    |--------------------------------------------------------------------------
-    | IMAGE OCR
-    |--------------------------------------------------------------------------
-    */
-
-    private function ocrImage(string $path): string
-    {
-        $tesseract = env(
-            'TESSERACT_PATH',
-            'C:\\Program Files\\Tesseract-OCR\\tesseract.exe'
-        );
-
-        if (!file_exists($tesseract)) {
-            throw new \RuntimeException(
-                'Tesseract was not found at: ' . $tesseract
-            );
-        }
-
-        try {
-
-            $text = (new TesseractOCR($path))
-                ->executable($tesseract)
-                ->lang('eng')
-                ->psm(6)
-                ->run();
-
-            if (trim($text) === '') {
-                throw new \RuntimeException(
-                    'No readable text found in image.'
-                );
-            }
-
-            return $text;
-
-        } catch (\Throwable $e) {
-
-            throw new \RuntimeException(
-                'Tesseract OCR failed: ' .
-                $e->getMessage()
-            );
-        }
-    }
-
-    /*
-    |--------------------------------------------------------------------------
-    | NORMALIZE TEXT
-    |--------------------------------------------------------------------------
-    */
-
-    private function normalizeText(string $text): string
-    {
-        $text = str_replace(
-            ["\r\n", "\r"],
-            "\n",
-            $text
-        );
-
-        $text = str_replace(
-            "\t",
-            ' ',
-            $text
-        );
-
-        $text = preg_replace(
-            '/[ ]{2,}/',
-            ' ',
-            $text
-        );
-
-        $text = preg_replace(
-            "/\n{3,}/",
-            "\n\n",
-            $text
-        );
+ private function extractCvDataWithAI(
+    string $fileId,
+    string $extension
+): array {
 
-        return trim($text);
-    }
+    $instructions = <<<'PROMPT'
+You are an EXTREMELY thorough CV/resume data extraction engine.
 
-    /*
-    |--------------------------------------------------------------------------
-    | AI CV PARSER
-    |--------------------------------------------------------------------------
-    */
+Your task is NOT to summarize the CV.
 
-    private function extractCvDataWithAI(string $text): array
-    {
-        /*
-        |--------------------------------------------------------------------------
-        | Prevent extremely large OpenAI requests
-        |--------------------------------------------------------------------------
-        */
+Your task is to read the ENTIRE CV and extract ALL meaningful information that belongs to the requested database fields.
 
-        $text = mb_substr(
-            $text,
-            0,
-            30000
-        );
+Think like a professional recruiter AND a document extraction system.
 
-        $prompt = <<<PROMPT
-You are an expert CV/resume parser and professional recruiter.
+The original CV must be treated as the source of truth.
 
-Your task is to understand the ENTIRE CV and extract structured information.
+==================================================
+CRITICAL REQUIREMENT: DO NOT LOSE INFORMATION
+==================================================
 
-IMPORTANT:
+You MUST inspect the ENTIRE uploaded CV.
 
-1. Do NOT depend on fixed headings.
+Read:
 
-2. The CV may have NO headings at all.
+- header
+- name
+- contact information
+- email
+- phone
+- professional title
+- profile
+- about me
+- career objective
+- summary
+- education
+- qualifications
+- certifications
+- courses
+- skills
+- technical skills
+- professional skills
+- languages
+- work experience
+- employment history
+- internships
+- projects
+- achievements
+- any other information that clearly belongs to the requested fields.
 
-3. The CV may have headings such as:
-   Profile
-   About Me
-   Career Objective
-   Professional Summary
-   Employment
-   Work History
-   Academic Background
-   Qualifications
-   Technical Expertise
-   Competencies
-   or completely different headings.
+Do NOT summarize away information.
 
-4. Understand the CV based on CONTEXT, exactly like a human recruiter.
+Do NOT select only the "best" skill.
 
-5. Find the candidate's REAL FULL NAME.
+Do NOT select only the latest education.
 
-6. Do NOT use these as a name:
-   NAME
-   RESUME
-   CV
-   CURRICULUM VITAE
-   PROFILE
-   ABOUT ME
-   CONTACT
-   PERSONAL INFORMATION
-   CAREER OBJECTIVE
-   PROFESSIONAL SUMMARY
+Do NOT select only the latest job.
 
-7. If the candidate's name appears near the top of the CV, use contextual clues to identify it.
+Do NOT return only the first matching item.
 
-8. Extract email if available.
+Extract ALL relevant information visible in the CV.
 
-9. Extract phone/mobile/contact number if available.
+==================================================
+NAME
+==================================================
 
-10. Identify the candidate's most appropriate current or primary profession/job title.
+Find the candidate's real name.
 
-11. Extract total professional experience if clearly available.
+Use contextual understanding.
 
-12. If total experience is not explicitly written, calculate it ONLY when the employment dates clearly allow a reliable calculation.
+Do NOT use these as names:
 
-13. Extract the most relevant education/qualification.
+NAME
+RESUME
+CV
+CURRICULUM VITAE
+PROFILE
+ABOUT ME
+CONTACT
+PERSONAL INFORMATION
+CAREER OBJECTIVE
+PROFESSIONAL SUMMARY
+CURRICULUM
 
-14. Extract ALL clearly identifiable professional and technical skills.
+If the name appears in large text at the top, it is highly likely to be the candidate's name.
 
-15. Extract ALL identifiable work experiences.
+Preserve the name exactly as written, except for obvious unnecessary whitespace.
 
-16. For every work experience extract:
-    company
-    designation
-    duration
-    description
+==================================================
+EMAIL
+==================================================
 
-17. Include internships only if they are clearly part of the candidate's professional experience.
+Extract the actual email address wherever it appears.
 
-18. Do NOT confuse company names with candidate names.
+Search the ENTIRE document.
 
-19. Do NOT confuse university names with candidate names.
+Do not return null if a clearly readable email exists.
 
-20. Do NOT confuse job titles with candidate names.
+Do not confuse website URLs with email addresses.
 
-21. Do NOT confuse addresses with candidate names.
+==================================================
+PHONE
+==================================================
 
-22. Do NOT invent information.
+Extract the candidate's actual phone/mobile/contact number.
 
-23. Do NOT guess missing information.
+Search the entire CV.
 
-24. If information does not exist, return null.
+Preserve the number as written.
 
-25. If no skills exist, return [].
+Do not invent country codes.
 
-26. If no work experience exists, return [].
+Do not confuse dates, IDs or postal codes with phone numbers.
 
-27. Preserve meaningful information from the CV.
+==================================================
+PROFESSION
+==================================================
 
-28. Return ONLY valid JSON.
+Identify the candidate's primary/current professional role.
 
-29. Do not return markdown.
+Use information such as:
 
-30. Do not return ```json.
+- title under name
+- current job title
+- latest job designation
+- professional summary
+- career objective
+- strongest professional context
 
-Return exactly this structure:
+Return the most appropriate professional title.
+
+==================================================
+EXPERIENCE
+==================================================
+
+Extract total professional experience if explicitly stated.
+
+If it is not explicitly stated, calculate it ONLY when employment dates make the calculation reasonably reliable.
+
+Do not invent experience.
+
+Examples:
+
+"5 years"
+"3 Years 6 Months"
+"2 years"
+"Not specified"
+
+==================================================
+EDUCATION
+==================================================
+
+THIS FIELD IS VERY IMPORTANT.
+
+Extract EVERY education/qualification entry.
+
+If the CV contains:
+
+University A
+University B
+Bachelor's
+Master's
+Diploma
+College
+School
+Certification
+Qualification
+
+do NOT choose only one.
+
+Preserve ALL relevant education information inside the SINGLE "education" field.
+
+Use a clear format such as:
+
+Borcelle University | 2026-2030 | Senior Accountant
+Borcelle University | 2023-2026 | Senior Accountant
+
+If there are multiple universities, include ALL of them.
+
+If there are multiple degrees, include ALL of them.
+
+If there are dates, preserve the dates.
+
+If there is a field of study, preserve it.
+
+If there is a qualification title, preserve it.
+
+Do NOT replace complete education with only the university name.
+
+==================================================
+SKILLS
+==================================================
+
+THIS FIELD IS EXTREMELY IMPORTANT.
+
+Extract ALL identifiable skills.
+
+Do NOT summarize.
+
+Do NOT select only the first few skills.
+
+Do NOT remove repeated-looking skills unless they are literally identical duplicates.
+
+Extract skills from:
+
+- Skills section
+- Technical Skills
+- Professional Skills
+- Expertise
+- Competencies
+- Technologies
+- Tools
+- Software
+- job descriptions
+- project descriptions
+- professional summary
+
+If a skill is clearly identifiable from the CV, include it.
+
+Examples:
+
+Auditing
+Financial Accounting
+Financial Reporting
+Microsoft Excel
+QuickBooks
+Financial Analysis
+
+Return ALL skills as separate array items.
+
+==================================================
+WORK EXPERIENCE
+==================================================
+
+Extract EVERY identifiable work experience.
+
+Do NOT return only the latest job.
+
+For EVERY job return:
+
+company
+designation
+duration
+description
+
+If the CV contains:
+
+Company A
+Company B
+
+both MUST be returned.
+
+If the CV contains:
+
+Accountant
+Financial Accountant
+
+both MUST be returned if they represent separate employment entries.
+
+Preserve meaningful descriptions.
+
+Do not shorten descriptions unnecessarily.
+
+==================================================
+DUPLICATE INFORMATION
+==================================================
+
+Do not lose information merely because similar information appears twice.
+
+For example, if:
+
+Auditing
+
+appears in two places, one clean "Auditing" entry is acceptable.
+
+But if:
+
+Financial Accounting
+Financial Reporting
+Auditing
+
+are present, ALL three must be returned.
+
+==================================================
+TABLES AND LAYOUT
+==================================================
+
+Pay special attention to:
+
+- columns
+- tables
+- bullet points
+- headers
+- sidebars
+- footer information
+- text near icons
+- text under headings
+
+Information may not be arranged like a normal paragraph.
+
+Understand the visual/document layout.
+
+==================================================
+IMAGE / SCANNED CV
+==================================================
+
+If this is an image or scanned document:
+
+VISUALLY INSPECT THE DOCUMENT.
+
+Read all clearly visible text.
+
+Do not depend on OCR.
+
+Pay attention to text inside:
+
+- headers
+- columns
+- tables
+- bullet lists
+- sidebars
+- footer
+- contact section
+
+==================================================
+NO GUESSING
+==================================================
+
+Never invent information.
+
+If information genuinely does not exist, return null.
+
+If no skills exist, return [].
+
+If no work experience exists, return [].
+
+==================================================
+OUTPUT REQUIREMENT
+==================================================
+
+Return ONLY valid JSON.
+
+No markdown.
+
+No explanation.
+
+No comments.
+
+No ```json.
+
+Return EXACTLY:
 
 {
     "full_name": null,
@@ -842,122 +629,316 @@ Return exactly this structure:
     ]
 }
 
-CV TEXT:
+IMPORTANT:
 
-$text
+The goal is MAXIMUM INFORMATION RECALL.
+
+Do NOT summarize the CV.
+
+Do NOT omit information simply because there is a lot of it.
+
+Extract everything relevant to these fields.
 PROMPT;
 
-        /*
-        |--------------------------------------------------------------------------
-        | OpenAI request
-        |--------------------------------------------------------------------------
-        */
 
-        $response = OpenAI::chat()->create([
-            'model' => 'gpt-5-mini',
+    /*
+    |--------------------------------------------------------------------------
+    | Build file input
+    |--------------------------------------------------------------------------
+    */
 
-            'messages' => [
-                [
-                    'role' => 'system',
-                    'content' =>
-                        'You are a highly accurate CV and resume information extraction system. Return only valid JSON.',
-                ],
-
-                [
-                    'role' => 'user',
-                    'content' => $prompt,
-                ],
-            ],
-
-            'response_format' => [
-                'type' => 'json_object',
-            ],
-        ]);
-
-        /*
-        |--------------------------------------------------------------------------
-        | Get AI response
-        |--------------------------------------------------------------------------
-        */
-
-        $content =
-            $response->choices[0]->message->content ?? '';
-
-        if (!$content) {
-            throw new \RuntimeException(
-                'OpenAI returned an empty response.'
-            );
-        }
-
-        /*
-        |--------------------------------------------------------------------------
-        | Decode JSON
-        |--------------------------------------------------------------------------
-        */
-
-        $data = json_decode(
-            $content,
+    if (
+        in_array(
+            $extension,
+            ['jpg', 'jpeg', 'png', 'webp'],
             true
-        );
+        )
+    ) {
 
-        if (!is_array($data)) {
-            throw new \RuntimeException(
-                'OpenAI returned invalid JSON.'
-            );
-        }
+        $input = [
+            [
+                'role' => 'user',
+                'content' => [
+                    [
+                        'type' => 'input_text',
+                        'text' => $instructions,
+                    ],
+                    [
+                        'type' => 'input_image',
+                        'file_id' => $fileId,
+                    ],
+                ],
+            ],
+        ];
 
-        /*
-        |--------------------------------------------------------------------------
-        | Ensure required fields
-        |--------------------------------------------------------------------------
-        */
+    } else {
 
-        $data['full_name'] =
-            $data['full_name'] ?? null;
-
-        $data['email'] =
-            $data['email'] ?? null;
-
-        $data['phone'] =
-            $data['phone'] ?? null;
-
-        $data['profession'] =
-            $data['profession'] ?? null;
-
-        $data['experience'] =
-            $data['experience'] ?? null;
-
-        $data['education'] =
-            $data['education'] ?? null;
-
-        /*
-        |--------------------------------------------------------------------------
-        | Skills
-        |--------------------------------------------------------------------------
-        */
-
-        if (
-            !isset($data['skills']) ||
-            !is_array($data['skills'])
-        ) {
-            $data['skills'] = [];
-        }
-
-        /*
-        |--------------------------------------------------------------------------
-        | Work Experience
-        |--------------------------------------------------------------------------
-        */
-
-        if (
-            !isset($data['work_experience']) ||
-            !is_array($data['work_experience'])
-        ) {
-            $data['work_experience'] = [];
-        }
-
-        return $data;
+        $input = [
+            [
+                'role' => 'user',
+                'content' => [
+                    [
+                        'type' => 'input_text',
+                        'text' => $instructions,
+                    ],
+                    [
+                        'type' => 'input_file',
+                        'file_id' => $fileId,
+                    ],
+                ],
+            ],
+        ];
     }
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | OpenAI Responses API
+    |--------------------------------------------------------------------------
+    */
+
+    $response = OpenAI::responses()->create([
+        'model' => 'gpt-5-mini',
+
+        'input' => $input,
+
+        'text' => [
+            'format' => [
+                'type' => 'json_schema',
+
+                'name' => 'cv_candidate_data',
+
+                'strict' => true,
+
+                'schema' => [
+                    'type' => 'object',
+
+                    'properties' => [
+
+                        'full_name' => [
+                            'type' => [
+                                'string',
+                                'null',
+                            ],
+                        ],
+
+                        'email' => [
+                            'type' => [
+                                'string',
+                                'null',
+                            ],
+                        ],
+
+                        'phone' => [
+                            'type' => [
+                                'string',
+                                'null',
+                            ],
+                        ],
+
+                        'profession' => [
+                            'type' => [
+                                'string',
+                                'null',
+                            ],
+                        ],
+
+                        'experience' => [
+                            'type' => [
+                                'string',
+                                'null',
+                            ],
+                        ],
+
+                        /*
+                        |--------------------------------------------------------------------------
+                        | ALL education entries stay in one string field
+                        |--------------------------------------------------------------------------
+                        */
+
+                        'education' => [
+                            'type' => [
+                                'string',
+                                'null',
+                            ],
+                        ],
+
+                        /*
+                        |--------------------------------------------------------------------------
+                        | ALL skills
+                        |--------------------------------------------------------------------------
+                        */
+
+                        'skills' => [
+                            'type' => 'array',
+
+                            'items' => [
+                                'type' => 'string',
+                            ],
+                        ],
+
+                        /*
+                        |--------------------------------------------------------------------------
+                        | ALL work experiences
+                        |--------------------------------------------------------------------------
+                        */
+
+                        'work_experience' => [
+                            'type' => 'array',
+
+                            'items' => [
+                                'type' => 'object',
+
+                                'properties' => [
+
+                                    'company' => [
+                                        'type' => [
+                                            'string',
+                                            'null',
+                                        ],
+                                    ],
+
+                                    'designation' => [
+                                        'type' => [
+                                            'string',
+                                            'null',
+                                        ],
+                                    ],
+
+                                    'duration' => [
+                                        'type' => [
+                                            'string',
+                                            'null',
+                                        ],
+                                    ],
+
+                                    'description' => [
+                                        'type' => [
+                                            'string',
+                                            'null',
+                                        ],
+                                    ],
+                                ],
+
+                                'required' => [
+                                    'company',
+                                    'designation',
+                                    'duration',
+                                    'description',
+                                ],
+
+                                'additionalProperties' => false,
+                            ],
+                        ],
+                    ],
+
+                    'required' => [
+                        'full_name',
+                        'email',
+                        'phone',
+                        'profession',
+                        'experience',
+                        'education',
+                        'skills',
+                        'work_experience',
+                    ],
+
+                    'additionalProperties' => false,
+                ],
+            ],
+        ],
+    ]);
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | Get response text
+    |--------------------------------------------------------------------------
+    */
+
+    $content = $response->outputText ?? '';
+
+    if (!$content) {
+        throw new \RuntimeException(
+            'OpenAI returned an empty CV extraction response.'
+        );
+    }
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | Decode JSON
+    |--------------------------------------------------------------------------
+    */
+
+    $data = json_decode(
+        $content,
+        true
+    );
+
+    if (!is_array($data)) {
+        throw new \RuntimeException(
+            'OpenAI returned invalid CV JSON.'
+        );
+    }
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | Normalize fields
+    |--------------------------------------------------------------------------
+    */
+
+    $data['full_name'] =
+        $data['full_name'] ?? null;
+
+    $data['email'] =
+        $data['email'] ?? null;
+
+    $data['phone'] =
+        $data['phone'] ?? null;
+
+    $data['profession'] =
+        $data['profession'] ?? null;
+
+    $data['experience'] =
+        $data['experience'] ?? null;
+
+    $data['education'] =
+        $data['education'] ?? null;
+
+    $data['skills'] =
+        isset($data['skills']) &&
+        is_array($data['skills'])
+            ? $data['skills']
+            : [];
+
+    $data['work_experience'] =
+        isset($data['work_experience']) &&
+        is_array($data['work_experience'])
+            ? $data['work_experience']
+            : [];
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | Remove empty skills
+    |--------------------------------------------------------------------------
+    */
+
+    $data['skills'] = array_values(
+        array_filter(
+            array_map(
+                fn ($skill) => trim((string) $skill),
+                $data['skills']
+            ),
+            fn ($skill) => $skill !== ''
+        )
+    );
+
+
+    return $data;
+}
 
     /*
     |--------------------------------------------------------------------------
@@ -971,6 +952,13 @@ PROMPT;
     ): void {
 
         if (!method_exists($candidate, 'skills')) {
+            Log::warning(
+                'Candidate skills relationship does not exist.',
+                [
+                    'candidate_id' => $candidate->id,
+                ]
+            );
+
             return;
         }
 
@@ -981,6 +969,12 @@ PROMPT;
         */
 
         $candidate->skills()->delete();
+
+        /*
+        |--------------------------------------------------------------------------
+        | Save new skills
+        |--------------------------------------------------------------------------
+        */
 
         foreach ($skills as $skill) {
 
@@ -1012,6 +1006,13 @@ PROMPT;
     ): void {
 
         if (!method_exists($candidate, 'experiences')) {
+            Log::warning(
+                'Candidate experiences relationship does not exist.',
+                [
+                    'candidate_id' => $candidate->id,
+                ]
+            );
+
             return;
         }
 
@@ -1022,6 +1023,12 @@ PROMPT;
         */
 
         $candidate->experiences()->delete();
+
+        /*
+        |--------------------------------------------------------------------------
+        | Save new experiences
+        |--------------------------------------------------------------------------
+        */
 
         foreach ($experiences as $experience) {
 
@@ -1045,3 +1052,4 @@ PROMPT;
         }
     }
 }
+

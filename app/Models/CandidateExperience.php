@@ -10,7 +10,7 @@ class CandidateExperience extends Model
     protected $fillable = [
         'candidate_id',
         'company',
-        'designation',
+        'job_title',
         'duration',
         'description',
     ];
