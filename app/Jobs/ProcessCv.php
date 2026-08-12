@@ -13,6 +13,7 @@ use Illuminate\Support\Facades\Storage;
 use OpenAI\Laravel\Facades\OpenAI;
 use PhpOffice\PhpWord\IOFactory;
 use Smalot\PdfParser\Parser as PdfParser;
+use Symfony\Component\Process\Process;
 use thiagoalessio\TesseractOCR\TesseractOCR;
 
 class ProcessCv implements ShouldQueue
@@ -58,7 +59,6 @@ class ProcessCv implements ShouldQueue
         }
 
         try {
-
             /*
             |--------------------------------------------------------------------------
             | STEP 1: Get CV file
@@ -83,7 +83,7 @@ class ProcessCv implements ShouldQueue
 
             /*
             |--------------------------------------------------------------------------
-            | STEP 2: Extract text from CV
+            | STEP 2: Extract text
             |--------------------------------------------------------------------------
             */
 
@@ -94,7 +94,7 @@ class ProcessCv implements ShouldQueue
 
             /*
             |--------------------------------------------------------------------------
-            | STEP 3: Normalize extracted text
+            | STEP 3: Normalize text
             |--------------------------------------------------------------------------
             */
 
@@ -108,7 +108,7 @@ class ProcessCv implements ShouldQueue
 
             /*
             |--------------------------------------------------------------------------
-            | STEP 4: Send complete CV text to OpenAI
+            | STEP 4: Send CV text to OpenAI
             |--------------------------------------------------------------------------
             */
 
@@ -116,7 +116,7 @@ class ProcessCv implements ShouldQueue
 
             /*
             |--------------------------------------------------------------------------
-            | STEP 5: Update candidate basic information
+            | STEP 5: Update candidate
             |--------------------------------------------------------------------------
             */
 
@@ -131,7 +131,7 @@ class ProcessCv implements ShouldQueue
 
             /*
             |--------------------------------------------------------------------------
-            | STEP 6: Save Skills
+            | STEP 6: Save skills
             |--------------------------------------------------------------------------
             */
 
@@ -142,7 +142,7 @@ class ProcessCv implements ShouldQueue
 
             /*
             |--------------------------------------------------------------------------
-            | STEP 7: Save Work Experiences
+            | STEP 7: Save work experiences
             |--------------------------------------------------------------------------
             */
 
@@ -163,12 +163,6 @@ class ProcessCv implements ShouldQueue
                 'error' => $e->getMessage(),
                 'file' => $candidate->cv_file,
             ]);
-
-            /*
-            |--------------------------------------------------------------------------
-            | Show processing error in candidate record
-            |--------------------------------------------------------------------------
-            */
 
             $candidate->update([
                 'full_name' => 'Processing Failed',
@@ -249,46 +243,46 @@ class ProcessCv implements ShouldQueue
     {
         try {
 
+            /*
+            |--------------------------------------------------------------------------
+            | First try normal selectable PDF text
+            |--------------------------------------------------------------------------
+            */
+
             $text = (new PdfParser())
                 ->parseFile($path)
                 ->getText();
 
-            /*
-            |--------------------------------------------------------------------------
-            | Normal PDF with selectable text
-            |--------------------------------------------------------------------------
-            */
-
             if (trim($text) !== '') {
+                Log::info('PDF selectable text extracted successfully.', [
+                    'file' => $path,
+                ]);
+
                 return $text;
             }
-
-            /*
-            |--------------------------------------------------------------------------
-            | Scanned PDF
-            |--------------------------------------------------------------------------
-            |
-            | IMPORTANT:
-            | Tesseract directly reading PDF is not supported reliably.
-            | We try OCR fallback below.
-            |
-            |--------------------------------------------------------------------------
-            */
-
-            return $this->ocrPdf($path);
 
         } catch (\Throwable $e) {
 
             Log::warning(
-                'PDF text extraction failed. Trying OCR.',
+                'Normal PDF text extraction failed. Switching to OCR.',
                 [
                     'file' => $path,
                     'error' => $e->getMessage(),
                 ]
             );
-
-            return $this->ocrPdf($path);
         }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Scanned / image based PDF
+        |--------------------------------------------------------------------------
+        |
+        | PDF -> PNG using Poppler -> OCR using Tesseract
+        |
+        |--------------------------------------------------------------------------
+        */
+
+        return $this->ocrPdf($path);
     }
 
     /*
@@ -296,7 +290,8 @@ class ProcessCv implements ShouldQueue
     | OCR PDF
     |--------------------------------------------------------------------------
     |
-    | Uses ImageMagick/Ghostscript conversion if available.
+    | Converts every PDF page into PNG using pdftoppm.
+    | Then runs Tesseract OCR on every PNG page.
     |
     |--------------------------------------------------------------------------
     */
@@ -305,50 +300,236 @@ class ProcessCv implements ShouldQueue
     {
         /*
         |--------------------------------------------------------------------------
-        | First attempt:
-        | Tesseract can sometimes process PDF depending on installation.
+        | Poppler executable
+        |--------------------------------------------------------------------------
+        |
+        | Local Windows:
+        | C:\poppler-26.02.0\Library\bin\pdftoppm.exe
+        |
+        | On live Linux server:
+        | /usr/bin/pdftoppm
+        |
+        | You can override using PDFTOPPM_PATH in .env
+        |
         |--------------------------------------------------------------------------
         */
 
-        try {
+        $pdftoppm = env(
+            'PDFTOPPM_PATH',
+            'C:\\poppler-26.02.0\\Library\\bin\\pdftoppm.exe'
+        );
 
-            $text = (new TesseractOCR($path))
-                ->executable(
-                    'C:\Program Files\Tesseract-OCR\tesseract.exe'
-                )
-                ->lang('eng')
-                ->psm(6)
-                ->run();
+        /*
+        |--------------------------------------------------------------------------
+        | Tesseract executable
+        |--------------------------------------------------------------------------
+        */
 
-            if (trim($text) !== '') {
-                return $text;
-            }
+        $tesseract = env(
+            'TESSERACT_PATH',
+            'C:\\Program Files\\Tesseract-OCR\\tesseract.exe'
+        );
 
-        } catch (\Throwable $e) {
+        if (!file_exists($pdftoppm)) {
+            throw new \RuntimeException(
+                'Poppler pdftoppm was not found at: ' . $pdftoppm
+            );
+        }
 
-            Log::warning(
-                'Direct PDF OCR failed.',
-                [
-                    'error' => $e->getMessage(),
-                ]
+        if (!file_exists($tesseract)) {
+            throw new \RuntimeException(
+                'Tesseract was not found at: ' . $tesseract
             );
         }
 
         /*
         |--------------------------------------------------------------------------
-        | If direct OCR doesn't work, return empty.
-        |--------------------------------------------------------------------------
-        |
-        | We don't want to crash the whole application with an invalid
-        | conversion command.
-        |
+        | Create temporary directory
         |--------------------------------------------------------------------------
         */
 
-        throw new \RuntimeException(
-            'This PDF appears to be scanned/image based and OCR could not read it. ' .
-            'Please make sure Tesseract is correctly installed and configured.'
+        $tempDirectory = storage_path(
+            'app' . DIRECTORY_SEPARATOR . 'cv_ocr'
         );
+
+        if (!is_dir($tempDirectory)) {
+            mkdir(
+                $tempDirectory,
+                0777,
+                true
+            );
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Unique OCR job directory
+        |--------------------------------------------------------------------------
+        */
+
+        $jobDirectory = $tempDirectory .
+            DIRECTORY_SEPARATOR .
+            uniqid('cv_', true);
+
+        if (!mkdir($jobDirectory, 0777, true) && !is_dir($jobDirectory)) {
+            throw new \RuntimeException(
+                'Could not create OCR temporary directory.'
+            );
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | PNG output prefix
+        |--------------------------------------------------------------------------
+        */
+
+        $outputPrefix = $jobDirectory .
+            DIRECTORY_SEPARATOR .
+            'page';
+
+        try {
+
+            /*
+            |--------------------------------------------------------------------------
+            | Convert PDF pages to PNG
+            |--------------------------------------------------------------------------
+            |
+            | 200 DPI is a good balance between OCR quality and speed.
+            |
+            |--------------------------------------------------------------------------
+            */
+
+            $process = new Process([
+                $pdftoppm,
+                '-png',
+                '-r',
+                '200',
+                $path,
+                $outputPrefix,
+            ]);
+
+            $process->setTimeout(180);
+
+            $process->run();
+
+            if (!$process->isSuccessful()) {
+
+                throw new \RuntimeException(
+                    'PDF to image conversion failed: ' .
+                    $process->getErrorOutput()
+                );
+            }
+
+            /*
+            |--------------------------------------------------------------------------
+            | Find generated PNG pages
+            |--------------------------------------------------------------------------
+            */
+
+            $pages = glob(
+                $outputPrefix . '-*.png'
+            );
+
+            if (!$pages) {
+                throw new \RuntimeException(
+                    'Poppler did not generate any PNG pages.'
+                );
+            }
+
+            /*
+            |--------------------------------------------------------------------------
+            | Sort pages naturally
+            |--------------------------------------------------------------------------
+            */
+
+            natsort($pages);
+
+            $pages = array_values($pages);
+
+            /*
+            |--------------------------------------------------------------------------
+            | OCR every page
+            |--------------------------------------------------------------------------
+            */
+
+            $fullText = '';
+
+            foreach ($pages as $index => $page) {
+
+                Log::info('Running OCR on PDF page.', [
+                    'file' => $path,
+                    'page' => $index + 1,
+                    'total_pages' => count($pages),
+                ]);
+
+                try {
+
+                    $pageText = (new TesseractOCR($page))
+                        ->executable($tesseract)
+                        ->lang('eng')
+                        ->psm(6)
+                        ->run();
+
+                    if (trim($pageText) !== '') {
+
+                        $fullText .=
+                            "\n\n--- PAGE " .
+                            ($index + 1) .
+                            " ---\n\n" .
+                            $pageText;
+                    }
+
+                } catch (\Throwable $e) {
+
+                    Log::warning(
+                        'OCR failed for PDF page.',
+                        [
+                            'file' => $path,
+                            'page' => $index + 1,
+                            'error' => $e->getMessage(),
+                        ]
+                    );
+                }
+            }
+
+            if (trim($fullText) === '') {
+                throw new \RuntimeException(
+                    'Tesseract could not extract readable text from the scanned PDF.'
+                );
+            }
+
+            Log::info('Scanned PDF OCR completed successfully.', [
+                'file' => $path,
+                'pages' => count($pages),
+            ]);
+
+            return $fullText;
+
+        } finally {
+
+            /*
+            |--------------------------------------------------------------------------
+            | Delete temporary PNG files
+            |--------------------------------------------------------------------------
+            */
+
+            $files = glob(
+                $jobDirectory .
+                DIRECTORY_SEPARATOR .
+                '*'
+            );
+
+            if ($files) {
+
+                foreach ($files as $file) {
+
+                    if (is_file($file)) {
+                        @unlink($file);
+                    }
+                }
+            }
+
+            @rmdir($jobDirectory);
+        }
     }
 
     /*
@@ -411,9 +592,7 @@ class ProcessCv implements ShouldQueue
                                         $value =
                                             $cellElement->getText();
 
-                                        if (
-                                            is_string($value)
-                                        ) {
+                                        if (is_string($value)) {
                                             $text .=
                                                 $value . ' ';
                                         }
@@ -460,15 +639,32 @@ class ProcessCv implements ShouldQueue
 
     private function ocrImage(string $path): string
     {
+        $tesseract = env(
+            'TESSERACT_PATH',
+            'C:\\Program Files\\Tesseract-OCR\\tesseract.exe'
+        );
+
+        if (!file_exists($tesseract)) {
+            throw new \RuntimeException(
+                'Tesseract was not found at: ' . $tesseract
+            );
+        }
+
         try {
 
-            return (new TesseractOCR($path))
-                ->executable(
-                    'C:\Program Files\Tesseract-OCR\tesseract.exe'
-                )
+            $text = (new TesseractOCR($path))
+                ->executable($tesseract)
                 ->lang('eng')
                 ->psm(6)
                 ->run();
+
+            if (trim($text) === '') {
+                throw new \RuntimeException(
+                    'No readable text found in image.'
+                );
+            }
+
+            return $text;
 
         } catch (\Throwable $e) {
 
@@ -517,11 +713,6 @@ class ProcessCv implements ShouldQueue
     /*
     |--------------------------------------------------------------------------
     | AI CV PARSER
-    |--------------------------------------------------------------------------
-    |
-    | IMPORTANT:
-    | This does NOT depend on fixed CV headings.
-    |
     |--------------------------------------------------------------------------
     */
 
@@ -693,7 +884,6 @@ PROMPT;
             $response->choices[0]->message->content ?? '';
 
         if (!$content) {
-
             throw new \RuntimeException(
                 'OpenAI returned an empty response.'
             );
@@ -711,7 +901,6 @@ PROMPT;
         );
 
         if (!is_array($data)) {
-
             throw new \RuntimeException(
                 'OpenAI returned invalid JSON.'
             );
@@ -781,12 +970,6 @@ PROMPT;
         array $skills
     ): void {
 
-        /*
-        |--------------------------------------------------------------------------
-        | If relationship exists
-        |--------------------------------------------------------------------------
-        */
-
         if (!method_exists($candidate, 'skills')) {
             return;
         }
@@ -810,14 +993,6 @@ PROMPT;
             if ($skill === '') {
                 continue;
             }
-
-            /*
-            |--------------------------------------------------------------------------
-            | IMPORTANT:
-            | This assumes CandidateSkill model/table relationship
-            | already exists in your project.
-            |--------------------------------------------------------------------------
-            */
 
             $candidate->skills()->create([
                 'skill' => $skill,
@@ -858,7 +1033,8 @@ PROMPT;
                 'company' =>
                     $experience['company'] ?? null,
 
-                'job_title' => $experience['designation'] ?? null,
+                'job_title' =>
+                    $experience['designation'] ?? null,
 
                 'duration' =>
                     $experience['duration'] ?? null,

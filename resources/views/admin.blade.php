@@ -174,48 +174,36 @@
 
                 <form
                     id="search-form"
-                    class="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full"
+                    class="w-full"
                     action="#"
                     method="GET"
                 >
 
-                    <!-- Search Type -->
-                    <select
-                        id="search-by"
-                        name="search_by"
-                        class="w-full sm:w-auto px-4 py-2 text-sm bg-white border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none shadow-sm"
-                    >
+                    <div class="relative max-w-md mx-auto">
+                        <svg
+                            class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none"
+                            xmlns="http://www.w3.org/2000/svg"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            stroke="currentColor"
+                        >
+                            <path
+                                stroke-linecap="round"
+                                stroke-linejoin="round"
+                                stroke-width="2"
+                                d="M21 21l-4.35-4.35m0 0A7.5 7.5 0 1010.5 18.5a7.5 7.5 0 006.15-3.85z"
+                            />
+                        </svg>
 
-                        <option value="profession">
-                            Profession
-                        </option>
-
-                        <option value="skills">
-                            Skills
-                        </option>
-
-                    </select>
-
-
-                    <!-- Search Input -->
-                    <input
-                        id="search-input"
-                        name="search"
-                        class="w-full sm:w-full lg:w-64 px-4 py-2 text-sm bg-white border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none shadow-sm"
-                        type="search"
-                        placeholder="Search by profession..."
-                        autocomplete="off"
-                    />
-
-
-                    <!-- Search Button -->
-                    <button
-                        id="search-button"
-                        type="button"
-                        class="w-full sm:w-auto px-4 py-2 text-sm font-medium bg-indigo-600 text-white hover:bg-indigo-700 rounded-lg shadow-sm transition-colors"
-                    >
-                        Search
-                    </button>
+                        <input
+                            id="search-input"
+                            name="search"
+                            class="w-full px-10 py-2 text-sm bg-white border border-slate-300 rounded-full focus:ring-2 focus:ring-indigo-500 focus:outline-none shadow-sm"
+                            type="search"
+                            placeholder="Search candidates..."
+                            autocomplete="off"
+                        />
+                    </div>
 
                 </form>
 
@@ -224,7 +212,7 @@
                     id="search-status"
                     class="text-xs text-slate-500 mt-2"
                 >
-                    Showing all candidates
+                    Showing all candidates ({{ $candidates->count() }})
                 </div>
 
             </div>
@@ -600,14 +588,8 @@ document.addEventListener('DOMContentLoaded', function () {
     const searchForm =
         document.getElementById('search-form');
 
-    const searchBy =
-        document.getElementById('search-by');
-
     const searchInput =
         document.getElementById('search-input');
-
-    const searchButton =
-        document.getElementById('search-button');
 
     const searchStatus =
         document.getElementById('search-status');
@@ -654,49 +636,8 @@ document.addEventListener('DOMContentLoaded', function () {
 
 
 
-    /* ============================================================
-       SEARCH TYPE CHANGE
-    ============================================================ */
-
-    searchBy.addEventListener(
-        'change',
-        function () {
-
-            searchInput.value = '';
 
 
-            if (this.value === 'skills') {
-
-                searchInput.placeholder =
-                    'Search by skills...';
-
-            } else {
-
-                searchInput.placeholder =
-                    'Search by profession...';
-
-            }
-
-
-            performSearch();
-
-        }
-    );
-
-
-
-    /* ============================================================
-       SEARCH BUTTON
-    ============================================================ */
-
-    searchButton.addEventListener(
-        'click',
-        function () {
-
-            performSearch();
-
-        }
-    );
 
 
 
@@ -737,7 +678,7 @@ document.addEventListener('DOMContentLoaded', function () {
                     performSearch();
 
                 },
-                400
+                300
             );
 
         }
@@ -751,9 +692,6 @@ document.addEventListener('DOMContentLoaded', function () {
 
     function performSearch() {
 
-        const searchType =
-            searchBy.value;
-
         const searchValue =
             searchInput.value.trim();
 
@@ -765,21 +703,10 @@ document.addEventListener('DOMContentLoaded', function () {
 
 
         url.searchParams.set(
-            'search_by',
-            searchType
-        );
-
-
-        url.searchParams.set(
             'search',
             searchValue
         );
 
-
-        searchButton.disabled = true;
-
-        searchButton.textContent =
-            'Searching...';
 
         searchStatus.textContent =
             'Searching candidates...';
@@ -824,14 +751,8 @@ document.addEventListener('DOMContentLoaded', function () {
 
                 } else {
 
-                    const typeText =
-                        searchType === 'skills'
-                            ? 'skills'
-                            : 'profession';
-
-
                     searchStatus.textContent =
-                        `Showing ${data.count} result(s) for ${typeText}: "${searchValue}"`;
+                        `Showing ${data.count} result(s) for "${searchValue}"`;
 
                 }
 
@@ -859,13 +780,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
         .finally(
             function () {
-
-                searchButton.disabled =
-                    false;
-
-                searchButton.textContent =
-                    'Search';
-
+                // finished loading
             }
         );
 
