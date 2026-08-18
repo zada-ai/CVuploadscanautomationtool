@@ -49,7 +49,7 @@
         <div class="flex items-center gap-2">
 
             <div class="bg-indigo-600 text-white font-bold text-xs w-8 h-8 flex items-center justify-center rounded-lg shadow-inner">
-                DB
+                <img src="{{ asset('images/abzuamanpower.png') }}" alt="abzuamanpower">
             </div>
 
             <span class="font-bold text-base tracking-tight text-white">
@@ -79,14 +79,14 @@
     <!-- Sidebar -->
     <aside
         id="desktop-sidebar"
-        class="w-64 bg-slate-900 text-white flex-shrink-0 hidden md:flex flex-col justify-between p-6 transition-transform duration-300 ease-in-out relative"
+        class="w-64 bg-[#000000f2] text-white flex-shrink-0 hidden md:flex flex-col justify-between p-6 transition-transform duration-300 ease-in-out relative"
     >
 
         <!-- Collapse Button -->
         <button
             type="button"
             id="sidebar-toggle"
-            class="absolute -right-3 top-6 w-7 h-7 bg-indigo-600 text-white rounded-full flex items-center justify-center shadow-lg hover:bg-indigo-700 transition-colors z-30"
+            class="absolute -right-3 top-6 w-7 h-7 bg-[#6da651] text-white rounded-full flex items-center justify-center shadow-lg hover:bg-[#5a8a41] transition-colors z-30"
             title="Collapse Sidebar"
         >
             ‹
@@ -98,14 +98,14 @@
             <div class="flex items-center gap-3 mb-8">
 
                 <div
-                    class="bg-indigo-600 text-white font-bold text-sm w-9 h-9 flex items-center justify-center rounded-lg shadow-inner"
+                    class=" text-white font-bold text-sm w-15 h-9 flex items-center justify-center rounded-lg shadow-inner"
                 >
-                    DB
+                   <img src="{{ asset('images/abzuamanpower.png') }}" alt="abzuamanpower">
                 </div>
 
-                <span class="font-bold text-lg tracking-tight text-white">
+                {{-- <span class="font-bold text-lg tracking-tight text-white">
                     CV Database
-                </span>
+                </span> --}}
 
             </div>
 
@@ -114,7 +114,7 @@
 
                 <a
                     href="{{ route('admin.dashboard') }}"
-                    class="flex items-center justify-between px-4 py-2.5 text-sm font-medium bg-indigo-600 text-white rounded-lg shadow-sm"
+                    class="flex items-center justify-between px-4 py-2.5 text-sm font-medium bg-[#6da651] text-white rounded-lg shadow-sm"
                 >
                     Dashboard
                     <span>›</span>
@@ -154,17 +154,17 @@
 
             <div>
 
-                <p class="text-xs font-semibold uppercase tracking-wider text-indigo-600 mb-1">
+                <p class="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1">
                     Recruitment Dashboard
                 </p>
 
-                <h1 class="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight">
+                <h1 class="text-2xl sm:text-3xl font-extrabold text-[#6da651] tracking-tight">
                     All Candidates
                 </h1>
 
-                <p class="text-slate-500 text-sm mt-1">
+                {{-- <p class="text-slate-500 text-sm mt-1">
                     Browse and search all uploaded CVs in a polished and responsive admin interface.
-                </p>
+                </p> --}}
 
             </div>
 
@@ -198,7 +198,7 @@
                         <input
                             id="search-input"
                             name="search"
-                            class="w-full px-10 py-2 text-sm bg-white border border-slate-300 rounded-full focus:ring-2 focus:ring-indigo-500 focus:outline-none shadow-sm"
+                            class="w-full px-10 py-2 text-sm bg-white border border-slate-300 rounded-full focus:ring-2 focus:ring-[#6da651] focus:outline-none shadow-sm"
                             type="search"
                             placeholder="Search candidates..."
                             autocomplete="off"
@@ -256,7 +256,7 @@
                         type="submit"
                         id="bulk-download-btn"
                         disabled
-                        class="w-full sm:w-auto px-4 py-2 text-sm font-semibold bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:bg-slate-300 disabled:cursor-not-allowed transition-colors"
+                        class="w-full sm:w-auto px-4 py-2 text-sm font-semibold bg-[#6da651] text-white rounded-lg hover:bg-[#5a8a41] disabled:bg-[#a0bda4] disabled:cursor-not-allowed transition-colors"
                     >
                         Download Selected CVs
                     </button>
@@ -283,7 +283,7 @@
                         type="submit"
                         id="bulk-delete-btn"
                         disabled
-                        class="w-full sm:w-auto px-4 py-2 text-sm font-semibold bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:bg-slate-300 disabled:cursor-not-allowed transition-colors"
+                        class="w-full sm:w-auto px-4 py-2 text-sm font-semibold bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:bg-[#a0bda4] disabled:cursor-not-allowed transition-colors"
                     >
                         Delete Selected CVs
                     </button>

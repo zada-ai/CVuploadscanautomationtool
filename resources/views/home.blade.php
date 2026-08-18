@@ -39,7 +39,7 @@
   <!-- Topbar Header -->
   <header class="bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-between shadow-sm sticky top-0 z-50">
     <div class="flex items-center gap-3">
-      <div class="bg-indigo-600 text-white font-bold text-sm w-9 h-9 flex items-center justify-center rounded-lg shadow-inner">
+      <div class="bg-[#6da551] text-white font-bold text-sm w-9 h-9 flex items-center justify-center rounded-lg shadow-inner">
         CV
       </div>
       <div>
@@ -94,12 +94,12 @@
         @csrf
 
         <section
-          class="w-full bg-white border-2 border-dashed border-slate-300 hover:border-indigo-500 rounded-2xl p-8 sm:p-12 text-center transition-all shadow-sm hover:shadow-md flex flex-col items-center group"
+          class="w-full bg-white border-2 border-dashed border-slate-300 hover:border-[#6da651] rounded-2xl p-8 sm:p-12 text-center transition-all shadow-sm hover:shadow-md flex flex-col items-center group"
         >
 
           <!-- Icon Wrapper -->
           <div
-            class="w-16 h-16 bg-indigo-50 text-indigo-600 rounded-full flex items-center justify-center mb-4 group-hover:scale-110 transition-transform"
+            class="w-16 h-16 bg-[#6da651] text-white rounded-full flex items-center justify-center mb-4 group-hover:scale-110 transition-transform"
             aria-hidden="true"
           >
             <svg
@@ -139,7 +139,7 @@
             </svg>
           </div>
 
-          <h2 class="text-xl font-bold text-slate-800 mb-1">
+          <h2 class="text-xl font-bold text-[#6da551] mb-1">
             Drag &amp; Drop your CV here
           </h2>
 
@@ -149,7 +149,7 @@
 
           <!-- File Input -->
           <label
-            class="inline-flex items-center justify-center px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold rounded-lg shadow-sm cursor-pointer transition-colors focus-within:ring-2 focus-within:ring-indigo-500 focus-within:ring-offset-2"
+            class="inline-flex items-center justify-center px-5 py-2.5 bg-[#6da551] hover:bg-[#5a8a44] text-white text-sm font-semibold rounded-lg shadow-sm cursor-pointer transition-colors focus-within:ring-2 focus-within:ring-indigo-500 focus-within:ring-offset-2"
           >
             <input
               type="file"
@@ -195,9 +195,9 @@
   </main>
 
   <!-- Footer -->
-  <footer class="border-t border-slate-200 py-6 text-center text-xs text-slate-500 bg-white" id="contact">
+  {{-- <footer class="border-t border-slate-200 py-6 text-center text-xs text-slate-500 bg-white" id="contact">
     <p>CV Database &mdash; Demo recruitment frontend</p>
-  </footer>
+  </footer> --}}
 
 </body>
 

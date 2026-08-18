@@ -16,19 +16,20 @@
         <!-- Logo / Brand -->
         <div class="text-center mb-8">
 
-            <div class="inline-flex items-center justify-center
-                        w-14 h-14 rounded-xl bg-indigo-600
-                        text-white font-bold text-xl shadow-lg mb-4">
-                DB
+            <div class="inline-flex items-center justify-center mb-4">
+                <div class="bg-white rounded-xl shadow-md px-4 py-2 flex items-center justify-center">
+                    <img src="{{ asset('images/abzuamanpower.png') }}" alt="CV Database Logo"
+                         class="h-14 sm:h-20 md:h-24 object-contain" />
+                </div>
             </div>
 
-            <h1 class="text-2xl font-bold text-slate-900">
+            {{-- <h1 class="text-2xl font-bold text-[#6da651] ">
                 CV Database
-            </h1>
+            </h1> --}}
 
-            <p class="text-sm text-slate-500 mt-1">
+            {{-- <p class="text-sm text-slate-500 mt-1">
                 Super Admin Login
-            </p>
+            </p> --}}
 
         </div>
 
@@ -39,7 +40,7 @@
 
             <div class="mb-6">
 
-                <h2 class="text-xl font-bold text-slate-900">
+                <h2 class="text-xl font-bold text-[#6da651]">
                     Welcome back
                 </h2>
 
@@ -103,8 +104,8 @@
                                text-sm
                                focus:outline-none
                                focus:ring-2
-                               focus:ring-indigo-500
-                               focus:border-indigo-500"
+                               focus:ring-[#6da651]
+                               focus:border-[indigo-500]"
                     >
 
                 </div>
@@ -134,8 +135,8 @@
                                text-sm
                                focus:outline-none
                                focus:ring-2
-                               focus:ring-indigo-500
-                               focus:border-indigo-500"
+                               focus:ring-[#6da651]
+                               focus:border-[#6da651]"
                     >
 
                 </div>
@@ -150,10 +151,10 @@
                             type="checkbox"
                             name="remember"
                             class="w-4 h-4
-                                   text-indigo-600
+                                   text-[#6da651]
                                    border-slate-300
                                    rounded
-                                   focus:ring-indigo-500"
+                                   focus:ring-[#6da651]"
                         >
 
                         <span class="text-sm text-slate-600">
@@ -163,18 +164,18 @@
                     </label>
 
 
-                    @if (Route::has('password.request'))
+                    {{-- @if (Route::has('password.request'))
 
                         <a
                             href="{{ route('password.request') }}"
                             class="text-sm font-medium
-                                   text-indigo-600
-                                   hover:text-indigo-700"
+                                   text-[#6da651]
+                                   hover:text-[#5a8a44]"
                         >
                             Forgot password?
                         </a>
 
-                    @endif
+                    @endif --}}
 
                 </div>
 
@@ -183,8 +184,8 @@
                 <button
                     type="submit"
                     class="w-full py-3 px-4
-                           bg-indigo-600
-                           hover:bg-indigo-700
+                           bg-[#6da651]
+                           hover:bg-[#5a8a44]
                            text-white
                            font-semibold
                            rounded-lg
@@ -200,9 +201,9 @@
 
 
         <!-- Footer -->
-        <p class="text-center text-xs text-slate-400 mt-6">
+        {{-- <p class="text-center text-xs text-slate-400 mt-6">
             © {{ date('Y') }} CV Database. All rights reserved.
-        </p>
+        </p> --}}
 
     </div>
 
