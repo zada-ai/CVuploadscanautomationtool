@@ -48,9 +48,9 @@
     </div>
     
     <nav class="flex items-center gap-1 sm:gap-2">
-      {{-- <a href="index.html" class="px-3 py-2 text-sm font-medium text-indigo-600 rounded-md bg-indigo-50">Home</a>
-      <a href="#about" class="px-3 py-2 text-sm font-medium text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-md transition-colors">About</a>
-      <a href="#contact" class="px-3 py-2 text-sm font-medium text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-md transition-colors">Contact</a> --}}
+      {{-- <a href="index.html" class="px-3 py-2 text-sm font-medium text-indigo-600 rounded-md bg-indigo-50">Admin Pannel</a> --}}
+      {{-- <a href="#about" class="px-3 py-2 text-sm font-medium text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-md transition-colors">About</a> --}}
+      <a href="{{ route('admin.dashboard') }}" class="px-3 py-2 text-sm font-medium text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-md transition-colors">Admin Pannel</a>
       @auth
           @if (auth()->user()->isAdmin())
               <a href="{{ route('admin.dashboard') }}" class="ml-2 px-4 py-2 text-sm font-medium text-white bg-slate-900 hover:bg-slate-800 rounded-md shadow-sm transition-colors">Admin</a>
@@ -154,10 +154,7 @@
             <input
               type="file"
               name="cv"
-             <input
-    type="file"
-    name="cv_file"
-    accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.webp"
+              accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.webp"
               class="sr-only"
               required
               onchange="showSelectedFile(this)"
