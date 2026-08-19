@@ -11,8 +11,11 @@ class CandidateSearchController extends Controller
     {
         $search = trim($request->input('search', ''));
 
-        $query = Candidate::with('skills')
-            ->latest();
+        $query = Candidate::with([
+            'skills',
+            'experiences',
+            'relevantJobs',
+        ])->latest();
 
         if ($search !== '') {
             $query->where(function ($q) use ($search) {
@@ -24,15 +27,25 @@ class CandidateSearchController extends Controller
                     ->orWhere('education', 'LIKE', "%{$search}%")
                     ->orWhereHas('skills', function ($skillQuery) use ($search) {
                         $skillQuery->where('skill', 'LIKE', "%{$search}%");
+                    })
+                    ->orWhereHas('relevantJobs', function ($jobQuery) use ($search) {
+                        $jobQuery->where('title', 'LIKE', "%{$search}%");
                     });
             });
         }
 
-        $candidates = $query->get();
+        // Today filter
+        if ($request->input('filter') === 'today') {
+            $query->whereDate('created_at', today());
+        }
+
+        $paginator = $query->paginate(10)->withQueryString();
+
+        $items = $paginator->items();
 
         return response()->json([
-            'count' => $candidates->count(),
-            'candidates' => $candidates->map(function ($candidate) {
+            'count' => $paginator->total(),
+            'candidates' => collect($items)->map(function ($candidate) {
                 return [
                     'id' => $candidate->id,
                     'full_name' => $candidate->full_name,
@@ -51,8 +64,26 @@ class CandidateSearchController extends Controller
                             return $skill->skill;
                         })
                         ->values(),
+
+                    'experiences' => $candidate->experiences
+                        ->map(function ($experience) {
+                            return [
+                                'job_title' => $experience->job_title,
+                                'company' => $experience->company,
+                                'duration' => $experience->duration,
+                                'description' => $experience->description,
+                            ];
+                        })
+                        ->values(),
+
+                    'relevant_jobs' => $candidate->relevantJobs
+                        ->map(function ($job) {
+                            return ['title' => $job->title];
+                        })
+                        ->values(),
                 ];
             })->values(),
+            'pagination' => view('partials.pagination-ajax', ['paginator' => $paginator])->render(),
         ]);
     }
 }

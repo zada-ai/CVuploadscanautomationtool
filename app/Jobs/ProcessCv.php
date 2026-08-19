@@ -3,6 +3,7 @@
 namespace App\Jobs;
 
 use App\Models\Candidate;
+use App\Models\RelevantJob;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -183,6 +184,11 @@ class ProcessCv implements ShouldQueue
                 $data['skills'] ?? []
             );
 
+            $this->saveRelevantJobs(
+                $candidate,
+                $data['relevant_jobs'] ?? []
+            );
+
             /*
             |--------------------------------------------------------------------------
             | STEP 8: Save work experiences
@@ -266,204 +272,262 @@ class ProcessCv implements ShouldQueue
 ): array {
 
     $instructions = <<<'PROMPT'
-You are an EXTREMELY thorough CV/resume data extraction engine.
+You are a STRICT CV/RESUME extraction engine.
 
-Your task is NOT to summarize the CV.
+Your ONLY job is to extract candidate information from the candidate's
+actual CV/resume.
 
-Your task is to read the ENTIRE CV and extract ALL meaningful information that belongs to the requested database fields.
-
-Think like a professional recruiter AND a document extraction system.
-
-The original CV must be treated as the source of truth.
+Do NOT enrich the CV with information from attached supporting documents.
+Do NOT infer information that is not explicitly present in the CV.
 
 ==================================================
-CRITICAL REQUIREMENT: DO NOT LOSE INFORMATION
+1. ABSOLUTE CV-ONLY RULE
 ==================================================
 
-You MUST inspect the ENTIRE uploaded CV.
+The uploaded file may contain a CV together with additional scanned or
+attached documents.
 
-Read:
+ONLY use information that is visibly and explicitly part of the
+candidate's CV/resume.
 
-- header
-- name
-- contact information
-- email
-- phone
-- professional title
-- profile
-- about me
-- career objective
-- summary
-- education
-- qualifications
-- certifications
-- courses
-- skills
-- technical skills
-- professional skills
-- languages
-- work experience
-- employment history
-- internships
-- projects
-- achievements
-- any other information that clearly belongs to the requested fields.
+Treat the CV itself as the ONLY source of truth.
 
-Do NOT summarize away information.
+COMPLETELY IGNORE any information coming from:
+- Passport
+- CNIC / National ID Card
+- Driving License
+- Identity Card
+- Domicile
+- Visa documents
+- Bank documents
+- Company ID / access cards
+- Result Cards
+- Mark Sheets
+- Transcripts
+- Degree certificates
+- Training certificates
+- Course certificates
+- Employment letters
+- Recommendation letters
+- Other supporting documents
+- Barcodes
+- QR codes
+- Document serial numbers
+- Passport numbers
+- CNIC numbers
+- Driving license numbers
+- Registration numbers
+- Certificate numbers
+- Roll numbers
+- Marks
+- Percentages
+- CGPA / GPA
+- Grades
+- Document issue dates
+- Document expiry dates
 
-Do NOT select only the "best" skill.
+If the uploaded PDF/image contains a CV plus other documents,
+IGNORE the other documents completely.
 
-Do NOT select only the latest education.
+Do NOT use supporting documents to fill missing CV information.
 
-Do NOT select only the latest job.
-
-Do NOT return only the first matching item.
-
-Extract ALL relevant information visible in the CV.
+Do NOT discover additional education, skills, experience, contact
+details, or personal information from supporting documents.
 
 ==================================================
-NAME
+2. DO NOT EXPAND THE CV
 ==================================================
 
-Find the candidate's real name.
+Only return information that is explicitly written in the candidate's
+actual CV/resume.
+
+If the CV lists only two degrees, return only those two degrees.
+
+If a result card contains another qualification that is NOT written in
+the CV, do NOT add it.
+
+If a certificate contains a skill that is NOT written in the CV, do NOT
+add it.
+
+If a driving license contains a vehicle category or driving information,
+do NOT add it to the candidate's profession, skills, education, or
+experience.
+
+Never supplement or complete the CV using attached documents.
+
+==================================================
+3. FULL NAME
+==================================================
+
+Find the candidate's real name from the CV.
 
 Use contextual understanding.
 
 Do NOT use these as names:
+- NAME
+- RESUME
+- CV
+- CURRICULUM VITAE
+- PROFILE
+- ABOUT ME
+- CONTACT
+- PERSONAL INFORMATION
+- CAREER OBJECTIVE
+- PROFESSIONAL SUMMARY
+- CURRICULUM
 
-NAME
-RESUME
-CV
-CURRICULUM VITAE
-PROFILE
-ABOUT ME
-CONTACT
-PERSONAL INFORMATION
-CAREER OBJECTIVE
-PROFESSIONAL SUMMARY
-CURRICULUM
-
-If the name appears in large text at the top, it is highly likely to be the candidate's name.
-
-Preserve the name exactly as written, except for obvious unnecessary whitespace.
+Prefer the actual candidate name shown on the CV.
 
 ==================================================
-EMAIL
+4. EMAIL
 ==================================================
 
-Extract the actual email address wherever it appears.
+Extract the candidate's email address ONLY when it appears in the
+candidate's CV.
 
-Search the ENTIRE document.
-
-Do not return null if a clearly readable email exists.
-
-Do not confuse website URLs with email addresses.
+Do not use email addresses found only in unrelated attached documents.
 
 ==================================================
-PHONE
+5. PHONE
 ==================================================
 
-Extract the candidate's actual phone/mobile/contact number.
+Extract the candidate's phone/mobile/contact number ONLY when it appears
+in the candidate's CV.
 
-Search the entire CV.
+Do not use phone numbers found only in passport, ID card, driving license,
+or other attached documents.
 
-Preserve the number as written.
-
-Do not invent country codes.
-
-Do not confuse dates, IDs or postal codes with phone numbers.
+Do not confuse dates, IDs, roll numbers, registration numbers, or
+document numbers with phone numbers.
 
 ==================================================
-PROFESSION
+6. PROFESSION
 ==================================================
 
-Identify the candidate's primary/current professional role.
+Identify the candidate's primary professional role/job title from the CV.
 
-Use information such as:
-
-- title under name
-- current job title
-- latest job designation
+Use:
+- title under the candidate's name
+- current/latest job title
 - professional summary
 - career objective
 - strongest professional context
 
-Return the most appropriate professional title.
+Return the most appropriate profession.
+
+Do not use a profession inferred only from a driving license, certificate,
+ID card, or other supporting document.
 
 ==================================================
-EXPERIENCE
+7. EXPERIENCE
 ==================================================
 
-Extract total professional experience if explicitly stated.
+Extract total professional experience only when it is stated in the CV.
 
-If it is not explicitly stated, calculate it ONLY when employment dates make the calculation reasonably reliable.
+If the total is not explicitly stated, calculate it ONLY when employment
+dates shown in the CV make the calculation reasonably reliable.
 
-Do not invent experience.
+Use only actual employment/work information from the CV.
+
+Do not use dates from passports, certificates, result cards, licenses,
+IDs, or other supporting documents.
+
+==================================================
+8. EDUCATION — VERY STRICT
+==================================================
+
+Return ONLY the names of degrees, diplomas, or qualifications explicitly
+listed in the candidate's CV.
+
+The education field must contain ONLY qualification names.
 
 Examples:
+- BS Electrical Engineering
+- Bachelor of Science in Electrical Engineering
+- DAE Electrical
+- Diploma in Civil Engineering
+- B.Com
+- Bachelor of Computer Science
+- Master of Business Administration
+- Intermediate
+- Matriculation
 
-"5 years"
-"3 Years 6 Months"
-"2 years"
-"Not specified"
+DO NOT include:
+- University/college names unless they are part of the actual
+  qualification title written in the CV
+- Marks
+- Total marks
+- Obtained marks
+- Percentage
+- CGPA
+- GPA
+- Grade
+- Roll number
+- Registration number
+- Enrollment number
+- Certificate number
+- Serial number
+- Subjects
+- Result details
+- Result dates
+- Admission dates
+- Graduation dates
+- Degree issue dates
+- Certificate issue/expiry dates
+- Transcript details
+- Marksheet details
+- Board verification details
+- Result card information
+- Any other document-specific information
+
+IMPORTANT:
+
+If the candidate's CV says:
+
+BS Electrical Engineering
+DAE Electrical
+
+then return only:
+
+BS Electrical Engineering
+DAE Electrical
+
+If an attached result card contains:
+3147/3550
+Grade A+
+Roll No. XXXXX
+Registration No. XXXXX
+subjects
+result date
+
+IGNORE ALL OF IT.
+
+Do NOT use a result card, transcript, marksheet, degree certificate,
+or other supporting document to discover additional education.
+
+Only qualifications explicitly present on the CV are allowed.
+
+If there are multiple degrees/diplomas explicitly written on the CV,
+include all of those qualification names and nothing else.
 
 ==================================================
-EDUCATION
+9. SKILLS — VERY STRICT AND PROFESSION-RELEVANT
 ==================================================
 
-THIS FIELD IS VERY IMPORTANT.
+Return ONLY genuine professional skills that are directly relevant to
+the candidate's identified profession.
 
-Extract EVERY education/qualification entry.
+This is NOT a general keyword extraction task.
 
-If the CV contains:
+A skill must pass this test:
 
-University A
-University B
-Bachelor's
-Master's
-Diploma
-College
-School
-Certification
-Qualification
+"Is this a real professional skill and is it directly relevant to this
+candidate's profession?"
 
-do NOT choose only one.
+If YES -> include it.
+If NO -> exclude it.
 
-Preserve ALL relevant education information inside the SINGLE "education" field.
-
-Use a clear format such as:
-
-Borcelle University | 2026-2030 | Senior Accountant
-Borcelle University | 2023-2026 | Senior Accountant
-
-If there are multiple universities, include ALL of them.
-
-If there are multiple degrees, include ALL of them.
-
-If there are dates, preserve the dates.
-
-If there is a field of study, preserve it.
-
-If there is a qualification title, preserve it.
-
-Do NOT replace complete education with only the university name.
-
-==================================================
-SKILLS
-==================================================
-
-THIS FIELD IS EXTREMELY IMPORTANT.
-
-Extract ALL identifiable skills.
-
-Do NOT summarize.
-
-Do NOT select only the first few skills.
-
-Do NOT remove repeated-looking skills unless they are literally identical duplicates.
-
-Extract skills from:
-
+Extract relevant professional skills from the CV's:
 - Skills section
 - Technical Skills
 - Professional Skills
@@ -472,141 +536,275 @@ Extract skills from:
 - Technologies
 - Tools
 - Software
-- job descriptions
-- project descriptions
-- professional summary
+- Work Experience descriptions
+- Project descriptions
+- Professional Summary
 
-If a skill is clearly identifiable from the CV, include it.
+However, ONLY keep skills that are relevant to the candidate's actual
+profession.
+
+Do NOT include irrelevant skills merely because they appear somewhere
+in the CV.
+
+--------------------------------------------------
+GENERIC / PERSONAL QUALITIES
+--------------------------------------------------
+
+Do NOT treat generic personal qualities as professional skills unless
+they are clearly profession-specific and genuinely useful for evaluating
+the candidate for that profession.
+
+Generally EXCLUDE:
+- Teamwork
+- Problem Solving
+- Hardworking
+- Honest
+- Reliable
+- Punctual
+- Friendly
+- Motivated
+- Self-motivated
+- Fast Learner
+- Time Management
+- Good Communication
+- Willing to Relocate
+- Positive Attitude
+- Sincerity
+- Adaptability
+
+--------------------------------------------------
+DOCUMENT / PERSONAL INFORMATION
+--------------------------------------------------
+
+NEVER return these as skills:
+- Passport information
+- CNIC information
+- Driving License information
+- ID card information
+- Domicile information
+- Result card information
+- Marksheet information
+- Certificate numbers
+- Registration numbers
+- Roll numbers
+- Document dates
+- Document serial numbers
+- QR/barcode content
+- Unrelated document text
+
+--------------------------------------------------
+PROFESSION EXAMPLE
+--------------------------------------------------
+
+If profession = Excavator Operator, relevant skills may include:
+- Excavator Operation
+- Hydraulic Excavator Operation
+- Heavy Equipment Operation
+- Earthmoving Equipment Operation
+- Excavation
+- Site Preparation
+- Equipment Inspection
+- Equipment Maintenance
+- Construction Safety
+- Material Loading and Unloading
+
+Do NOT include unrelated skills simply because they appear elsewhere.
+
+If profession = Laravel Developer, relevant skills may include:
+- Laravel
+- PHP
+- MySQL
+- REST API Development
+- JavaScript
+- Git
+- Laravel Sanctum
+
+Do NOT include unrelated skills such as driving, cooking, passport
+information, document handling, or unrelated hobbies.
+
+If profession = Electrician, relevant skills may include:
+- Electrical Installation
+- Electrical Maintenance
+- Wiring
+- Troubleshooting
+- Circuit Testing
+- Electrical Safety
+- Control Panels
+- Motor Maintenance
+
+--------------------------------------------------
+SKILL DEDUPLICATION
+--------------------------------------------------
+
+Return each meaningful skill once.
+
+For example:
+Electrical Maintenance
+Electrical Installation
+Troubleshooting
+
+are separate relevant skills.
+
+Do not repeat the same skill multiple times.
+
+==================================================
+
+RELEVANT JOBS
+==================================================
+
+Based ONLY on the candidate's actual CV/resume, identify job positions
+for which this candidate is genuinely suitable.
+
+Use only:
+- profession
+- actual work experience
+- professional skills
+- education/qualification
+- career background
+
+Do NOT use:
+- Passport
+- CNIC
+- Driving License
+- ID Cards
+- Domicile
+- Result Cards
+- Mark Sheets
+- Transcripts
+- Degree Certificates
+- Training Certificates
+- Course Certificates
+- Employment Letters
+- Recommendation Letters
+- Other Supporting Documents
+
+Do NOT invent qualifications, skills, experience, or jobs.
+
+Do NOT suggest jobs just because a single keyword vaguely matches.
+
+Only suggest positions that a recruiter could reasonably consider this
+candidate for based on the actual CV.
+
+Prefer specific professional job titles.
+
+Return 3 to 6 relevant job titles when enough information exists.
+
+If only 1 or 2 jobs are genuinely supported, return only those.
+
+If no suitable job can be determined, return [].
+
+Do not return duplicate job titles.
 
 Examples:
 
-Auditing
-Financial Accounting
-Financial Reporting
-Microsoft Excel
-QuickBooks
-Financial Analysis
+Profession: Excavator Operator
 
-Return ALL skills as separate array items.
+Relevant Jobs:
+- Excavator Operator
+- Heavy Equipment Operator
+- Earthmoving Equipment Operator
+- Construction Equipment Operator
 
-==================================================
-WORK EXPERIENCE
-==================================================
-
-Extract EVERY identifiable work experience.
-
-Do NOT return only the latest job.
-
-For EVERY job return:
-
-company
-designation
-duration
-description
-
-If the CV contains:
-
-Company A
-Company B
-
-both MUST be returned.
-
-If the CV contains:
-
-Accountant
-Financial Accountant
-
-both MUST be returned if they represent separate employment entries.
-
-Preserve meaningful descriptions.
-
-Do not shorten descriptions unnecessarily.
+Do NOT suggest Civil Engineer, Site Engineer, Mechanical Engineer,
+etc. unless the actual CV supports those positions.
 
 ==================================================
-DUPLICATE INFORMATION
+10. WORK EXPERIENCE
 ==================================================
 
-Do not lose information merely because similar information appears twice.
+Extract actual employment/work experience explicitly present in the CV.
 
-For example, if:
+For every work experience return:
+- company
+- designation
+- duration
+- description
 
-Auditing
+Only use work experience written in the CV.
 
-appears in two places, one clean "Auditing" entry is acceptable.
+Do NOT treat:
+- certificates
+- result cards
+- passport pages
+- driving license pages
+- ID cards
+- training cards
+- document text
 
-But if:
+as employment experience.
 
-Financial Accounting
-Financial Reporting
-Auditing
-
-are present, ALL three must be returned.
-
-==================================================
-TABLES AND LAYOUT
-==================================================
-
-Pay special attention to:
-
-- columns
-- tables
-- bullet points
-- headers
-- sidebars
-- footer information
-- text near icons
-- text under headings
-
-Information may not be arranged like a normal paragraph.
-
-Understand the visual/document layout.
+Preserve meaningful job responsibilities from the CV, but do not copy
+unrelated document information.
 
 ==================================================
-IMAGE / SCANNED CV
+11. SCANNED / MULTI-PAGE FILES
 ==================================================
 
-If this is an image or scanned document:
+The uploaded file may contain many pages.
 
-VISUALLY INSPECT THE DOCUMENT.
+Do NOT assume every page belongs to the CV.
 
-Read all clearly visible text.
+Identify the actual CV/resume content and ignore all attached supporting
+documents.
 
-Do not depend on OCR.
+A page that is clearly:
+- passport
+- CNIC
+- driving license
+- result card
+- marksheet
+- transcript
+- certificate
+- company ID card
+- other supporting document
 
-Pay attention to text inside:
+must NOT be used as a source for the candidate fields.
 
-- headers
-- columns
-- tables
-- bullet lists
-- sidebars
-- footer
-- contact section
+If the information exists only on such a page, treat it as NOT AVAILABLE.
 
 ==================================================
-NO GUESSING
+12. NO GUESSING / NO INFERENCE FROM ATTACHMENTS
 ==================================================
 
 Never invent information.
 
-If information genuinely does not exist, return null.
+Never infer missing information from supporting documents.
 
-If no skills exist, return [].
+Never use information from one document to complete another document.
 
-If no work experience exists, return [].
+If information is not explicitly available in the CV, return null or [].
 
 ==================================================
-OUTPUT REQUIREMENT
+13. FINAL VALIDATION
+==================================================
+
+Before returning the JSON, perform these checks:
+
+1. Did I use ONLY the actual CV/resume?
+2. Did I completely ignore passport/CNIC/driving license/ID cards?
+3. Did I completely ignore result cards/marksheets/transcripts?
+4. Did I completely ignore unrelated certificates and supporting documents?
+5. Does education contain ONLY degree/diploma/qualification names?
+6. Did I remove marks, CGPA, grades, roll numbers, registration numbers,
+   certificate numbers, subjects, result-card information and dates?
+7. Are all skills directly relevant to the candidate's profession?
+8. Did I remove generic, irrelevant, personal, or document-related items
+   from skills?
+9. Did I use only actual CV work experience?
+10. Did I avoid guessing or adding information?
+
+If any value fails these rules, REMOVE IT before returning the result.
+
+==================================================
+14. OUTPUT
 ==================================================
 
 Return ONLY valid JSON.
 
 No markdown.
-
 No explanation.
-
 No comments.
-
+No extra fields.
 No ```json.
 
 Return EXACTLY:
@@ -619,6 +817,7 @@ Return EXACTLY:
     "experience": null,
     "education": null,
     "skills": [],
+    "relevant_jobs": [],
     "work_experience": [
         {
             "company": null,
@@ -628,16 +827,6 @@ Return EXACTLY:
         }
     ]
 }
-
-IMPORTANT:
-
-The goal is MAXIMUM INFORMATION RECALL.
-
-Do NOT summarize the CV.
-
-Do NOT omit information simply because there is a lot of it.
-
-Extract everything relevant to these fields.
 PROMPT;
 
 
@@ -752,7 +941,7 @@ PROMPT;
 
                         /*
                         |--------------------------------------------------------------------------
-                        | ALL education entries stay in one string field
+                        | ONLY CV-listed degree/diploma/qualification names
                         |--------------------------------------------------------------------------
                         */
 
@@ -765,11 +954,19 @@ PROMPT;
 
                         /*
                         |--------------------------------------------------------------------------
-                        | ALL skills
+                        | ONLY profession-relevant skills
                         |--------------------------------------------------------------------------
                         */
 
                         'skills' => [
+                            'type' => 'array',
+
+                            'items' => [
+                                'type' => 'string',
+                            ],
+                        ],
+
+                        'relevant_jobs' => [
                             'type' => 'array',
 
                             'items' => [
@@ -840,6 +1037,7 @@ PROMPT;
                         'experience',
                         'education',
                         'skills',
+                        'relevant_jobs',
                         'work_experience',
                     ],
 
@@ -933,6 +1131,27 @@ PROMPT;
                 $data['skills']
             ),
             fn ($skill) => $skill !== ''
+        )
+    );
+
+    $data['relevant_jobs'] =
+        isset($data['relevant_jobs']) &&
+        is_array($data['relevant_jobs'])
+            ? $data['relevant_jobs']
+            : [];
+
+    $data['relevant_jobs'] = array_values(
+        array_unique(
+            array_filter(
+                array_map(
+                    function ($job) {
+                        $job = trim((string) $job);
+                        return preg_replace('/\s+/', ' ', $job);
+                    },
+                    $data['relevant_jobs']
+                ),
+                fn ($job) => $job !== ''
+            )
         )
     );
 
@@ -1050,6 +1269,54 @@ PROMPT;
                     $experience['description'] ?? null,
             ]);
         }
+    }
+
+    private function saveRelevantJobs(
+        Candidate $candidate,
+        array $jobs
+    ): void {
+
+        if (!method_exists($candidate, 'relevantJobs')) {
+            Log::warning(
+                'Candidate relevantJobs relationship does not exist.',
+                [
+                    'candidate_id' => $candidate->id,
+                ]
+            );
+
+            return;
+        }
+
+        $jobIds = [];
+
+        foreach ($jobs as $jobTitle) {
+
+            if (is_array($jobTitle)) {
+                continue;
+            }
+
+            $jobTitle = trim((string) $jobTitle);
+
+            if ($jobTitle === '') {
+                continue;
+            }
+
+            $jobTitle = preg_replace(
+                '/\s+/',
+                ' ',
+                $jobTitle
+            );
+
+            $job = RelevantJob::firstOrCreate([
+                'title' => $jobTitle,
+            ]);
+
+            $jobIds[] = $job->id;
+        }
+
+        $candidate->relevantJobs()->sync(
+            array_values(array_unique($jobIds))
+        );
     }
 }
 
