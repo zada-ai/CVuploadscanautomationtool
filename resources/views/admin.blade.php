@@ -35,6 +35,7 @@
             },
         };
     </script>
+    <meta name="csrf-token" content="{{ csrf_token() }}">
 </head>
 
 
@@ -120,6 +121,12 @@
                     <span>›</span>
                 </a>
 
+                <div class="mt-4">
+                    <a href="{{ route('admin.dashboard') }}" class="block px-4 py-2.5 text-sm font-medium hover:bg-white/5 rounded-md {{ request()->input('filter') !== 'today' ? 'bg-white/5' : '' }}">All Candidates</a>
+
+                    <a href="{{ route('admin.dashboard', ['filter' => 'today']) }}" class="mt-2 block px-4 py-2.5 text-sm font-medium hover:bg-white/5 rounded-md {{ request()->input('filter') === 'today' ? 'bg-[#6da651] text-white' : '' }}">Today Uploaded ({{ $todayCount ?? 0 }})</a>
+                </div>
+
             </nav>
 
         </div>
@@ -146,7 +153,7 @@
 
 
     <!-- Dashboard Content Area -->
-    <div class="flex-grow p-4 sm:p-6 md:p-10 overflow-x-auto w-full">
+    <div id="main-content" class="flex-grow p-4 sm:p-6 md:p-10 overflow-x-auto w-full"> 
 
 
         <!-- Dashboard Header -->
@@ -212,7 +219,7 @@
                     id="search-status"
                     class="text-xs text-slate-500 mt-2"
                 >
-                    Showing all candidates ({{ $candidates->count() }})
+                    Showing all candidates ({{ $candidates->total() }})
                 </div>
 
             </div>
@@ -290,6 +297,40 @@
 
                 </form>
 
+                <!-- EXPORT SELECTED FORM -->
+                <form
+                    id="bulk-export-form"
+                    method="POST"
+                    action="{{ route('admin.candidates.export.selected') }}"
+                    class="w-full sm:w-auto"
+                >
+
+                    @csrf
+
+                    <div id="selected-candidates-export"></div>
+
+                    <button
+                        type="submit"
+                        id="bulk-export-btn"
+                        disabled
+                        class="w-full sm:w-auto px-4 py-2 text-sm font-semibold bg-[#2563eb] text-white rounded-lg hover:bg-[#1e4fd1] disabled:bg-[#9bb0ef] disabled:cursor-not-allowed transition-colors"
+                    >
+                        Export Selected
+                    </button>
+
+                </form>
+
+                <!-- EXPORT ALL -->
+                <div class="w-full sm:w-auto">
+                    <a
+                        href="{{ route('admin.candidates.export.all') }}"
+                        id="export-all-btn"
+                        class="inline-flex items-center justify-center px-4 py-2 text-sm font-semibold bg-[#0ea5a4] text-white rounded-lg hover:bg-[#08908f] transition-colors"
+                    >
+                        Export All
+                    </a>
+                </div>
+
             </div>
 
         </div>
@@ -330,7 +371,7 @@
 
             <div class="overflow-x-auto">
 
-                <table class="w-full min-w-[900px] text-left border-collapse">
+                <table class="w-full table-auto text-left border-collapse">
 
                     <thead>
 
@@ -338,7 +379,7 @@
 
 
                             <!-- Select All -->
-                            <th class="py-3.5 px-4 w-10 text-center">
+                            <th class="py-2 px-3 w-10 text-center">
 
                                 <input
                                     type="checkbox"
@@ -349,35 +390,39 @@
                             </th>
 
 
-                            <th class="py-3.5 px-4">
+                            <th class="py-2 px-3">
                                 Candidate
                             </th>
 
-                            <th class="py-3.5 px-4">
+                            <th class="py-2 px-3">
                                 Contact
                             </th>
 
-                            <th class="py-3.5 px-4">
+                            <th class="py-2 px-3">
                                 Profession
                             </th>
 
-                            <th class="py-3.5 px-4">
+                            <th class="py-2 px-3">
                                 Experience
                             </th>
 
-                            <th class="py-3.5 px-4">
+                            <th class="py-2 px-3">
                                 Skills
                             </th>
 
-                            <th class="py-3.5 px-4">
+                            <th class="py-2 px-3">
                                 Education
                             </th>
 
-                            <th class="py-3.5 px-4">
+                            <th class="py-2 px-3">
+                                Relevant Jobs
+                            </th>
+
+                            <th class="py-2 px-3">
                                 Uploaded
                             </th>
 
-                            <th class="py-3.5 px-4 text-center">
+                            <th class="py-2 px-3 text-center">
                                 Actions
                             </th>
 
@@ -397,7 +442,7 @@
 
 
                             <!-- Checkbox -->
-                            <td class="py-4 px-4 text-center">
+                            <td class="py-3 px-3 text-center">
 
                                 <input
                                     type="checkbox"
@@ -411,7 +456,7 @@
 
 
                             <!-- Candidate -->
-                            <td class="py-4 px-4">
+                            <td class="py-3 px-3">
 
                                 <div class="flex items-center gap-3">
 
@@ -441,7 +486,7 @@
 
 
                             <!-- Contact -->
-                            <td class="py-4 px-4 text-xs text-slate-600">
+                            <td class="py-3 px-3 text-xs text-slate-600">
 
                                 <div>
                                     {{ $candidate->email ?: 'No email' }}
@@ -456,7 +501,7 @@
 
 
                             <!-- Profession -->
-                            <td class="py-4 px-4 font-medium text-slate-700">
+                            <td class="py-3 px-3 font-medium text-slate-700">
 
                                 {{ $candidate->profession ?: 'Not specified' }}
 
@@ -465,34 +510,183 @@
 
 
                             <!-- Experience -->
-                            <td class="py-4 px-4 text-slate-600">
+                           <!-- Experience -->
+                        <td class="py-3 px-3 text-slate-600 min-w-[280px]">
 
-                                {{ $candidate->experience ?: 'Not specified' }}
+                            @php
+                                $exps = $candidate->experiences ?? [];
+                                if ($exps instanceof \Illuminate\Support\Collection) {
+                                    $exps = $exps->all();
+                                }
+                                $expCount = is_countable($exps) ? count($exps) : 0;
+                            @endphp
 
-                            </td>
+                            @if($expCount === 0)
+
+                                <span class="text-xs text-slate-400">
+                                    No experience found
+                                </span>
+
+                            @elseif($expCount === 1)
+
+                                @php
+                                    $experience = $exps[0];
+                                @endphp
+
+                                <div class="mb-4 last:mb-0">
+
+                                    <div class="font-semibold text-slate-800">
+                                        {{ $experience->job_title ?: 'Not specified' }}
+                                    </div>
+
+                                    @if($experience->company)
+                                        <div class="text-sm font-medium text-slate-700">
+                                            {{ $experience->company }}
+                                        </div>
+                                    @endif
+
+                                    @if($experience->duration)
+                                        <div class="text-xs text-slate-500 mt-0.5">
+                                            {{ $experience->duration }}
+                                        </div>
+                                    @endif
+
+                                    @if($experience->description)
+                                        <div class="text-xs text-slate-600 mt-1 whitespace-pre-line leading-5">
+                                            {{ $experience->description }}
+                                        </div>
+                                    @endif
+
+                                </div>
+
+                            @else
+
+                            @php
+                                $first = $exps[0];
+                            @endphp
+
+                                <div class="mb-4 last:mb-0">
+
+                                    <div class="font-semibold text-slate-800">
+                                        {{ $first->job_title ?: 'Not specified' }}
+                                    </div>
+
+                                    @if($first->company)
+                                        <div class="text-sm font-medium text-slate-700">
+                                            {{ $first->company }}
+                                        </div>
+                                    @endif
+
+                                    @if($first->duration)
+                                        <div class="text-xs text-slate-500 mt-0.5">
+                                            {{ $first->duration }}
+                                        </div>
+                                    @endif
+
+                                    @if($first->description)
+                                        <div class="text-xs text-slate-600 mt-1 whitespace-pre-line leading-5">
+                                            {{ $first->description }}
+                                        </div>
+                                    @endif
+
+                                </div>
+
+                                <div id="exp-more-{{ $candidate->id }}" class="hidden">
+
+                                    @foreach(array_slice($exps, 1) as $experience)
+
+                                        <div class="mb-4 last:mb-0">
+
+                                            <div class="font-semibold text-slate-800">
+                                                {{ $experience->job_title ?: 'Not specified' }}
+                                            </div>
+
+                                            @if($experience->company)
+                                                <div class="text-sm font-medium text-slate-700">
+                                                    {{ $experience->company }}
+                                                </div>
+                                            @endif
+
+                                            @if($experience->duration)
+                                                <div class="text-xs text-slate-500 mt-0.5">
+                                                    {{ $experience->duration }}
+                                                </div>
+                                            @endif
+
+                                            @if($experience->description)
+                                                <div class="text-xs text-slate-600 mt-1 whitespace-pre-line leading-5">
+                                                    {{ $experience->description }}
+                                                </div>
+                                            @endif
+
+                                        </div>
+
+                                    @endforeach
+
+                                </div>
+
+                                <button type="button" class="exp-toggle mt-2 text-xs text-indigo-600 hover:underline" data-id="{{ $candidate->id }}">Read more</button>
+
+                            @endif
+
+                        </td>
 
 
 
                             <!-- Skills -->
-                            <td class="py-4 px-4">
+                            <td class="py-3 px-3">
 
                                 <div class="flex flex-wrap gap-1">
 
-                                    @forelse($candidate->skills as $skill)
+                                    @php
+                                        $skills = $candidate->skills ?? [];
+                                        if ($skills instanceof \Illuminate\Support\Collection) {
+                                            $skills = $skills->all();
+                                        }
+                                        $skillCount = is_countable($skills) ? count($skills) : 0;
+                                    @endphp
 
-                                        <span class="px-2 py-0.5 text-xs bg-slate-100 text-slate-700 rounded border border-slate-200">
-
-                                            {{ $skill->skill }}
-
-                                        </span>
-
-                                    @empty
+                                    @if($skillCount === 0)
 
                                         <span class="text-xs text-slate-400">
                                             No skills found
                                         </span>
 
-                                    @endforelse
+                                    @elseif($skillCount <= 2)
+
+                                        @foreach($skills as $skill)
+
+                                            <span class="px-2 py-0.5 text-xs bg-slate-100 text-slate-700 rounded border border-slate-200">
+                                                {{ $skill->skill }}
+                                            </span>
+
+                                        @endforeach
+
+                                    @else
+
+                                        @foreach(array_slice($skills, 0, 2) as $skill)
+
+                                            <span class="px-2 py-0.5 text-xs bg-slate-100 text-slate-700 rounded border border-slate-200">
+                                                {{ $skill->skill }}
+                                            </span>
+
+                                        @endforeach
+
+                                        <span id="skills-more-{{ $candidate->id }}" class="hidden">
+
+                                            @foreach(array_slice($skills, 2) as $skill)
+
+                                                <span class="px-2 py-0.5 text-xs bg-slate-100 text-slate-700 rounded border border-slate-200">
+                                                    {{ $skill->skill }}
+                                                </span>
+
+                                            @endforeach
+
+                                        </span>
+
+                                        <button type="button" class="skills-toggle mt-1 text-xs text-indigo-600 hover:underline" data-id="{{ $candidate->id }}">+{{ $skillCount - 2 }} more</button>
+
+                                    @endif
 
                                 </div>
 
@@ -501,16 +695,140 @@
 
 
                             <!-- Education -->
-                            <td class="py-4 px-4 text-slate-600">
+                            <td class="py-3 px-3 text-slate-600">
 
-                                {{ $candidate->education ?: 'Not specified' }}
+                                        @php
+                                            $eduRaw = $candidate->education;
+                                            $eduList = [];
+
+                                            if (is_array($eduRaw)) {
+                                                $eduList = $eduRaw;
+                                            } elseif (is_string($eduRaw) && $eduRaw !== '') {
+                                                $decoded = json_decode($eduRaw, true);
+                                                if (is_array($decoded)) {
+                                                    $eduList = $decoded;
+                                                } else {
+                                                    $eduList = [$eduRaw];
+                                                        // try splitting common delimiters (newline, semicolon, comma)
+                                                        if (preg_match('/[\r\n;,|]/', $eduRaw)) {
+                                                            $parts = preg_split('/[\r\n;,|]+/', $eduRaw);
+                                                            $eduList = array_map('trim', $parts);
+                                                        } else {
+                                                            $eduList = [$eduRaw];
+                                                        }
+                                                }
+                                            }
+
+                                            // dedupe and normalize
+                                            $eduList = array_values(array_unique(array_filter(array_map(function ($e) {
+                                                return is_string($e) ? trim($e) : null;
+                                            }, $eduList))));
+
+                                            $eduCount = count($eduList);
+                                        @endphp
+
+                                        @if($eduCount === 0)
+
+                                            {{ 'Not specified' }}
+
+                                        @elseif($eduCount <= 2)
+
+                                            @foreach($eduList as $edu)
+                                                <span class="px-2 py-0.5 text-xs bg-slate-100 text-slate-700 rounded border border-slate-200">{{ $edu }}</span>
+                                            @endforeach
+
+                                        @else
+
+                                            @foreach(array_slice($eduList, 0, 2) as $edu)
+                                                <span class="px-2 py-0.5 text-xs bg-slate-100 text-slate-700 rounded border border-slate-200">{{ $edu }}</span>
+                                            @endforeach
+
+                                            <span id="education-more-{{ $candidate->id }}" class="hidden">
+
+                                                @foreach(array_slice($eduList, 2) as $edu)
+
+                                                    <span class="px-2 py-0.5 text-xs bg-slate-100 text-slate-700 rounded border border-slate-200">{{ $edu }}</span>
+
+                                                @endforeach
+
+                                            </span>
+
+                                            <button type="button" class="education-toggle mt-1 text-xs text-indigo-600 hover:underline" data-id="{{ $candidate->id }}">+{{ $eduCount - 2 }} more</button>
+
+                                        @endif
+
+                            </td>
+
+
+                            <!-- Relevant Jobs -->
+                            <td class="py-3 px-3">
+
+                                <div class="flex flex-wrap gap-1">
+
+                                    @php
+                                        $rjobs = $candidate->relevantJobs ?? [];
+                                        if ($rjobs instanceof \Illuminate\Support\Collection) {
+                                            $rjobs = $rjobs->all();
+                                        }
+
+                                        // extract titles, dedupe
+                                        $rjobTitles = array_values(array_unique(array_filter(array_map(function ($j) {
+                                            return is_object($j) && isset($j->title) ? trim($j->title) : null;
+                                        }, $rjobs))));
+
+                                        $rjobCount = count($rjobTitles);
+                                    @endphp
+
+                                    @if($rjobCount === 0)
+
+                                        <span class="text-xs text-slate-400">
+                                            No relevant jobs
+                                        </span>
+
+                                    @elseif($rjobCount <= 2)
+
+                                        @foreach($rjobTitles as $title)
+
+                                            <span class="px-2 py-0.5 text-xs bg-slate-100 text-slate-700 rounded border border-slate-200">
+                                                {{ $title }}
+                                            </span>
+
+                                        @endforeach
+
+                                    @else
+
+                                        @foreach(array_slice($rjobTitles, 0, 2) as $title)
+
+                                            <span class="px-2 py-0.5 text-xs bg-slate-100 text-slate-700 rounded border border-slate-200">
+                                                {{ $title }}
+                                            </span>
+
+                                        @endforeach
+
+                                        <span id="relevant-more-{{ $candidate->id }}" class="hidden">
+
+                                            @foreach(array_slice($rjobTitles, 2) as $title)
+
+                                                <span class="px-2 py-0.5 text-xs bg-slate-100 text-slate-700 rounded border border-slate-200">
+                                                    {{ $title }}
+                                                </span>
+
+                                            @endforeach
+
+                                        </span>
+
+                                        <button type="button" class="relevant-toggle mt-1 text-xs text-indigo-600 hover:underline" data-id="{{ $candidate->id }}">+{{ $rjobCount - 2 }} more</button>
+
+                                    @endif
+
+                                </div>
 
                             </td>
 
 
 
                             <!-- Uploaded -->
-                            <td class="py-4 px-4 text-xs text-slate-500 whitespace-nowrap">
+                            <td class="py-3 px-3 text-xs text-slate-500 whitespace-nowrap">
 
                                 {{ $candidate->created_at->format('d M Y') }}
 
@@ -519,10 +837,11 @@
 
 
                             <!-- Actions -->
-                            <td class="py-4 px-4 text-center">
+                            <td class="py-3 px-3 text-center">
 
                                 <div class="flex items-center justify-center gap-2">
 
+                                    <a href="#" data-id="{{ $candidate->id }}" class="px-3 py-1.5 text-xs font-semibold bg-yellow-50 text-yellow-700 hover:bg-yellow-100 rounded-md edit-btn">Edit</a>
 
                                     <a
                                         href="{{ asset('storage/' . $candidate->cv_file) }}"
@@ -552,7 +871,7 @@
                         <tr>
 
                             <td
-                                colspan="9"
+                                colspan="10"
                                 class="py-10 text-center text-slate-500"
                             >
                                 No CVs uploaded yet.
@@ -566,6 +885,13 @@
 
                 </table>
 
+                <div id="server-pagination" class="p-4">
+                    @if($candidates->lastPage() > 1)
+                        {{ $candidates->appends(request()->query())->links() }}
+                    @endif
+                </div>
+
+                <div id="ajax-pagination" class="p-4"></div>
             </div>
 
         </section>
@@ -614,6 +940,12 @@ document.addEventListener('DOMContentLoaded', function () {
 
     const selectedCandidatesDelete =
         document.getElementById('selected-candidates-delete');
+
+    const exportButton =
+        document.getElementById('bulk-export-btn');
+
+    const selectedCandidatesExport =
+        document.getElementById('selected-candidates-export');
 
 
 
@@ -690,7 +1022,7 @@ document.addEventListener('DOMContentLoaded', function () {
        SEARCH FUNCTION
     ============================================================ */
 
-    function performSearch() {
+    function performSearch(page = 1) {
 
         const searchValue =
             searchInput.value.trim();
@@ -706,6 +1038,14 @@ document.addEventListener('DOMContentLoaded', function () {
             'search',
             searchValue
         );
+
+        // include page and filter params
+        url.searchParams.set('page', page);
+
+        const filter = new URL(window.location).searchParams.get('filter');
+        if (filter) {
+            url.searchParams.set('filter', filter);
+        }
 
 
         searchStatus.textContent =
@@ -761,6 +1101,18 @@ document.addEventListener('DOMContentLoaded', function () {
                     data.candidates || []
                 );
 
+                // pagination HTML (AJAX)
+                const serverPagination = document.getElementById('server-pagination');
+                const ajaxPagination = document.getElementById('ajax-pagination');
+
+                if (data.pagination && ajaxPagination) {
+                    ajaxPagination.innerHTML = data.pagination;
+                    if (serverPagination) serverPagination.style.display = 'none';
+                } else {
+                    if (ajaxPagination) ajaxPagination.innerHTML = '';
+                    if (serverPagination) serverPagination.style.display = '';
+                }
+
             }
         )
 
@@ -787,12 +1139,55 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
 
+    // Intercept clicks on AJAX pagination
+    document.addEventListener('click', function (e) {
+        // AJAX-style pagination box
+        const pagAjax = e.target.closest('#ajax-pagination a');
+        if (pagAjax) {
+            e.preventDefault();
+            try {
+                const href = pagAjax.getAttribute('href');
+                const page = new URL(href, window.location.origin).searchParams.get('page') || 1;
+                performSearch(page);
+            } catch (err) {
+                performSearch(1);
+            }
+            return;
+        }
+
+        // Server-rendered pagination (use AJAX instead of full reload)
+        const pagServer = e.target.closest('#server-pagination a');
+        if (pagServer) {
+            e.preventDefault();
+            try {
+                const href = pagServer.getAttribute('href');
+                const page = new URL(href, window.location.origin).searchParams.get('page') || 1;
+                performSearch(page);
+            } catch (err) {
+                performSearch(1);
+            }
+            return;
+        }
+    });
+
+    // Delegated click for Edit buttons (server and ajax rows)
+    document.addEventListener('click', function (e) {
+        const btn = e.target.closest('.edit-btn');
+        if (btn) {
+            e.preventDefault();
+            const id = btn.dataset.id;
+            openEditModal(id);
+        }
+    });
+
+
 
     /* ============================================================
        RENDER CANDIDATES
     ============================================================ */
 
     function renderCandidates(candidates) {
+
 
 
         if (candidates.length === 0) {
@@ -802,7 +1197,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 <tr>
 
                     <td
-                        colspan="9"
+                        colspan="10"
                         class="py-12 px-4 text-center"
                     >
 
@@ -851,44 +1246,51 @@ document.addEventListener('DOMContentLoaded', function () {
 
 
                     /* ====================================================
-                       SKILLS
+                       SKILLS (show first 2, toggle remaining)
                     ==================================================== */
 
                     let skillsHtml = '';
 
+                    if (candidate.skills && candidate.skills.length > 0) {
 
-                    if (
-                        candidate.skills &&
-                        candidate.skills.length > 0
-                    ) {
+                        if (candidate.skills.length <= 2) {
 
-                        skillsHtml =
-                            candidate.skills
-                                .map(
-                                    function (skill) {
+                            skillsHtml = candidate.skills.map(function (skill) {
+                                return `
+                                    <span class="px-2 py-0.5 text-xs bg-slate-100 text-slate-700 rounded border border-slate-200">
+                                        ${escapeHtml(skill)}
+                                    </span>
+                                `;
+                            }).join('');
 
-                                        return `
+                        } else {
 
-                                            <span
-                                                class="px-2 py-0.5 text-xs bg-slate-100 text-slate-700 rounded border border-slate-200"
-                                            >
-                                                ${escapeHtml(skill)}
-                                            </span>
+                            const firstSkills = candidate.skills.slice(0, 2).map(function (skill) {
+                                return `
+                                    <span class="px-2 py-0.5 text-xs bg-slate-100 text-slate-700 rounded border border-slate-200">
+                                        ${escapeHtml(skill)}
+                                    </span>
+                                `;
+                            }).join('');
 
-                                        `;
+                            const moreSkillsHtml = candidate.skills.slice(2).map(function (skill) {
+                                return `
+                                    <span class="px-2 py-0.5 text-xs bg-slate-100 text-slate-700 rounded border border-slate-200">
+                                        ${escapeHtml(skill)}
+                                    </span>
+                                `;
+                            }).join('');
 
-                                    }
-                                )
-                                .join('');
+                            skillsHtml = `${firstSkills}<span id="skills-more-${candidate.id}" class="hidden">${moreSkillsHtml}</span><button type="button" class="skills-toggle mt-1 text-xs text-indigo-600 hover:underline" data-id="${candidate.id}">+${candidate.skills.length - 2} more</button>`;
+
+                        }
 
                     } else {
 
                         skillsHtml = `
-
                             <span class="text-xs text-slate-400">
                                 No skills found
                             </span>
-
                         `;
 
                     }
@@ -910,6 +1312,101 @@ document.addEventListener('DOMContentLoaded', function () {
 
                     }
 
+                    /* ====================================================
+                       EDUCATION + RELEVANT JOBS PREP
+                    ==================================================== */
+
+                    // Education: handle string, JSON string, or array and render as badges (latest 2 + toggle)
+                    let educationInner = '';
+                    (function () {
+                        let list = [];
+
+                        if (Array.isArray(candidate.education)) {
+                            list = candidate.education.slice();
+                        } else if (candidate.education && typeof candidate.education === 'string') {
+                            try {
+                                const parsed = JSON.parse(candidate.education);
+                                if (Array.isArray(parsed)) list = parsed.slice();
+                                else list = [candidate.education];
+                            } catch (e) {
+                                // try splitting on common delimiters when not JSON
+                                const raw = candidate.education;
+                                if (/[\r\n;,|]/.test(raw)) {
+                                    list = raw.split(/(?:\r\n|\n|[;,|])+/).map(s => s.trim()).filter(Boolean);
+                                } else {
+                                    list = [candidate.education];
+                                }
+                            }
+                        }
+
+                        // normalize & dedupe
+                        list = list.map(function (s) {
+                            return typeof s === 'string' ? s.trim() : '';
+                        }).filter(function (s) { return s.length > 0; });
+
+                        list = Array.from(new Set(list));
+
+                        if (list.length === 0) {
+                            educationInner = escapeHtml('Not specified');
+                        } else if (list.length <= 2) {
+                            educationInner = list.map(function (e) {
+                                return `<span class="px-2 py-0.5 text-xs bg-slate-100 text-slate-700 rounded border border-slate-200">${escapeHtml(e)}</span>`;
+                            }).join('');
+                        } else {
+                            const first = list.slice(0,2).map(function (e) {
+                                return `<span class="px-2 py-0.5 text-xs bg-slate-100 text-slate-700 rounded border border-slate-200">${escapeHtml(e)}</span>`;
+                            }).join('');
+
+                            const more = list.slice(2).map(function (e) {
+                                return `<span class="px-2 py-0.5 text-xs bg-slate-100 text-slate-700 rounded border border-slate-200">${escapeHtml(e)}</span>`;
+                            }).join('');
+
+                            educationInner = `${first}<span id="education-more-${candidate.id}" class="hidden">${more}</span><button type="button" class="education-toggle mt-1 text-xs text-indigo-600 hover:underline" data-id="${candidate.id}">+${list.length - 2} more</button>`;
+                        }
+                    })();
+
+                    // Relevant jobs: show first 2, toggle remaining
+                    let relevantJobsHtml = '';
+
+                    if (candidate.relevant_jobs && candidate.relevant_jobs.length > 0) {
+
+                        // dedupe by title
+                        const titles = Array.from(new Set(candidate.relevant_jobs.map(function (j) { return (j && j.title) ? String(j.title).trim() : ''; }).filter(Boolean)));
+
+                        if (titles.length <= 2) {
+
+                            relevantJobsHtml = titles.map(function (t) {
+                                return `
+                                    <span class="px-2 py-0.5 text-xs bg-slate-100 text-slate-700 rounded border border-slate-200">${escapeHtml(t)}</span>
+                                `;
+                            }).join('');
+
+                        } else {
+
+                            const first = titles.slice(0, 2).map(function (t) {
+                                return `
+                                    <span class="px-2 py-0.5 text-xs bg-slate-100 text-slate-700 rounded border border-slate-200">${escapeHtml(t)}</span>
+                                `;
+                            }).join('');
+
+                            const more = titles.slice(2).map(function (t) {
+                                return `
+                                    <span class="px-2 py-0.5 text-xs bg-slate-100 text-slate-700 rounded border border-slate-200">${escapeHtml(t)}</span>
+                                `;
+                            }).join('');
+
+                            relevantJobsHtml = `${first}<span id="relevant-more-${candidate.id}" class="hidden">${more}</span><button type="button" class="relevant-toggle mt-1 text-xs text-indigo-600 hover:underline" data-id="${candidate.id}">+${titles.length - 2} more</button>`;
+
+                        }
+
+                    } else {
+
+                        relevantJobsHtml = `
+                            <span class="text-xs text-slate-400">No relevant jobs</span>
+                        `;
+
+                    }
+
 
 
                     /* ====================================================
@@ -923,7 +1420,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
                             <!-- Checkbox -->
 
-                            <td class="py-4 px-4 text-center">
+                            <td class="py-3 px-3 text-center">
 
                                 <input
                                     type="checkbox"
@@ -1009,14 +1506,55 @@ document.addEventListener('DOMContentLoaded', function () {
 
                             <!-- Experience -->
 
-                            <td class="py-4 px-4 text-slate-600">
+                          <!-- Experience -->
 
-                                ${escapeHtml(
-                                    candidate.experience ||
-                                    'Not specified'
-                                )}
+<td class="py-4 px-4 text-slate-600 min-w-[320px]">
 
-                            </td>
+    ${ (candidate.experiences && candidate.experiences.length > 0) ? (function () {
+
+        if (candidate.experiences.length === 1) {
+
+            const e = candidate.experiences[0];
+            return `
+                <div class="mb-4 last:mb-0">
+                    <div class="font-semibold text-slate-800">${escapeHtml(e.job_title || 'Not specified')}</div>
+                    ${ e.company ? `<div class="text-sm font-medium text-slate-700">${escapeHtml(e.company)}</div>` : '' }
+                    ${ e.duration ? `<div class="text-xs text-slate-500 mt-0.5">${escapeHtml(e.duration)}</div>` : '' }
+                    ${ e.description ? `<div class="text-xs text-slate-600 mt-1 whitespace-pre-line leading-5">${escapeHtml(e.description)}</div>` : '' }
+                </div>
+            `;
+
+        }
+
+        // multiple experiences: show first, hide rest
+        const first = candidate.experiences[0];
+        const rest = candidate.experiences.slice(1).map(function (experience) {
+            return `
+                <div class="mb-4 last:mb-0">
+                    <div class="font-semibold text-slate-800">${escapeHtml(experience.job_title || 'Not specified')}</div>
+                    ${ experience.company ? `<div class="text-sm font-medium text-slate-700">${escapeHtml(experience.company)}</div>` : '' }
+                    ${ experience.duration ? `<div class="text-xs text-slate-500 mt-0.5">${escapeHtml(experience.duration)}</div>` : '' }
+                    ${ experience.description ? `<div class="text-xs text-slate-600 mt-1 whitespace-pre-line leading-5">${escapeHtml(experience.description)}</div>` : '' }
+                </div>
+            `;
+        }).join('');
+
+        return `
+            <div class="mb-4 last:mb-0">
+                <div class="font-semibold text-slate-800">${escapeHtml(first.job_title || 'Not specified')}</div>
+                ${ first.company ? `<div class="text-sm font-medium text-slate-700">${escapeHtml(first.company)}</div>` : '' }
+                ${ first.duration ? `<div class="text-xs text-slate-500 mt-0.5">${escapeHtml(first.duration)}</div>` : '' }
+                ${ first.description ? `<div class="text-xs text-slate-600 mt-1 whitespace-pre-line leading-5">${escapeHtml(first.description)}</div>` : '' }
+            </div>
+            <div id="exp-more-${candidate.id}" class="hidden">${rest}</div>
+            <button type="button" class="exp-toggle mt-2 text-xs text-indigo-600 hover:underline" data-id="${candidate.id}">Read more</button>
+        `;
+
+    })() : `
+        <span class="text-xs text-slate-400">No experience found</span>
+    ` }
+
+</td>
 
 
 
@@ -1038,10 +1576,20 @@ document.addEventListener('DOMContentLoaded', function () {
 
                             <td class="py-4 px-4 text-slate-600">
 
-                                ${escapeHtml(
-                                    candidate.education ||
-                                    'Not specified'
-                                )}
+                                ${educationInner}
+
+                            </td>
+
+
+
+                            <!-- Relevant Jobs -->
+                            <td class="py-4 px-4">
+
+                                <div class="flex flex-wrap gap-1">
+
+                                    ${relevantJobsHtml}
+
+                                </div>
 
                             </td>
 
@@ -1075,6 +1623,8 @@ document.addEventListener('DOMContentLoaded', function () {
                                         View
                                     </a>
 
+                                    <a href="#" data-id="${candidate.id}" class="px-3 py-1.5 text-xs font-semibold bg-yellow-50 text-yellow-700 hover:bg-yellow-100 rounded-md edit-btn">Edit</a>
+
 
                                     <a
                                         href="${cvUrl}"
@@ -1107,31 +1657,56 @@ document.addEventListener('DOMContentLoaded', function () {
 
 
     /* ============================================================
-       CHECKBOX INITIALIZATION
+       CHECKBOX INITIALIZATION + GLOBAL SELECTION PERSISTENCE
     ============================================================ */
+
+    // Global selected IDs set persisted in sessionStorage
+    const STORAGE_KEY = 'selectedCandidateIds';
+    const selectedCandidateIds = new Set(JSON.parse(sessionStorage.getItem(STORAGE_KEY) || '[]'));
+
+    function saveSelectedIdsToStorage() {
+        try {
+            sessionStorage.setItem(STORAGE_KEY, JSON.stringify([...selectedCandidateIds]));
+        } catch (e) {
+            // sessionStorage might be unavailable; ignore
+        }
+    }
 
     function initializeCheckboxes() {
 
-        const checkboxes =
-            document.querySelectorAll(
-                '.row-checkbox'
-            );
+        const checkboxes = document.querySelectorAll('.row-checkbox');
 
+        checkboxes.forEach(function (checkbox) {
 
-        checkboxes.forEach(
-            function (checkbox) {
+            const id = checkbox.value;
 
-                checkbox.addEventListener(
-                    'change',
-                    updateSelection
-                );
+            // Set checkbox state based on global set
+            checkbox.checked = selectedCandidateIds.has(id);
 
-            }
-        );
+            // Ensure change handler only once
+            checkbox.removeEventListener('change', onRowCheckboxChange);
+            checkbox.addEventListener('change', onRowCheckboxChange);
 
+        });
 
+        // Update select-all and hidden inputs
         updateSelection();
 
+    }
+
+    function onRowCheckboxChange(event) {
+        const checkbox = event.currentTarget;
+        const id = checkbox.value;
+
+        if (checkbox.checked) {
+            selectedCandidateIds.add(id);
+        } else {
+            selectedCandidateIds.delete(id);
+        }
+
+        saveSelectedIdsToStorage();
+
+        updateSelection();
     }
 
 
@@ -1142,114 +1717,58 @@ document.addEventListener('DOMContentLoaded', function () {
 
     function updateSelection() {
 
-        const checkboxes =
-            document.querySelectorAll(
-                '.row-checkbox'
-            );
+        // Visible checkboxes on current page
+        const visibleCheckboxes = Array.from(document.querySelectorAll('.row-checkbox'));
 
+        const visibleTotal = visibleCheckboxes.length;
+        const visibleSelectedCount = visibleCheckboxes.filter(cb => selectedCandidateIds.has(cb.value)).length;
 
-        const selected =
-            Array.from(checkboxes)
-                .filter(
-                    function (checkbox) {
-
-                        return checkbox.checked;
-
-                    }
-                );
-
-
-
-        /* Select All State */
-
+        // Update selectAll checkbox state based on visible page
         if (selectAllCheckbox) {
-
-            selectAllCheckbox.checked =
-                selected.length > 0 &&
-                selected.length ===
-                    checkboxes.length;
-
+            selectAllCheckbox.checked = visibleSelectedCount > 0 && visibleSelectedCount === visibleTotal && visibleTotal > 0;
+            selectAllCheckbox.indeterminate = visibleSelectedCount > 0 && visibleSelectedCount < visibleTotal;
         }
 
+        // Total selected count across pages
+        const totalSelected = selectedCandidateIds.size;
 
+        selectionStatus.textContent = `${totalSelected} CVs selected`;
 
-        /* Selection Counter */
+        // Enable/disable buttons based on global selection
+        const anySelected = totalSelected > 0;
+        downloadButton.disabled = !anySelected;
+        deleteButton.disabled = !anySelected;
+        if (exportButton) exportButton.disabled = !anySelected;
 
-        selectionStatus.textContent =
-            `${selected.length} CVs selected`;
-
-
-
-        /* Enable / Disable Download */
-
-        downloadButton.disabled =
-            selected.length === 0;
-
-
-
-        /* Enable / Disable Delete */
-
-        deleteButton.disabled =
-            selected.length === 0;
-
-
-
-        /* Clear old hidden IDs */
-
+        // Rebuild hidden inputs for all selected IDs (global)
         selectedCandidates.innerHTML = '';
-
         selectedCandidatesDelete.innerHTML = '';
+        if (selectedCandidatesExport) selectedCandidatesExport.innerHTML = '';
 
+        [...selectedCandidateIds].forEach(function (id) {
+            // Download
+            const downloadInput = document.createElement('input');
+            downloadInput.type = 'hidden';
+            downloadInput.name = 'candidate_ids[]';
+            downloadInput.value = id;
+            selectedCandidates.appendChild(downloadInput);
 
+            // Delete
+            const deleteInput = document.createElement('input');
+            deleteInput.type = 'hidden';
+            deleteInput.name = 'candidate_ids[]';
+            deleteInput.value = id;
+            selectedCandidatesDelete.appendChild(deleteInput);
 
-        /* Add IDs to both forms */
-
-        selected.forEach(
-            function (checkbox) {
-
-
-                /* Download */
-
-                const downloadInput =
-                    document.createElement('input');
-
-                downloadInput.type =
-                    'hidden';
-
-                downloadInput.name =
-                    'candidate_ids[]';
-
-                downloadInput.value =
-                    checkbox.value;
-
-
-                selectedCandidates.appendChild(
-                    downloadInput
-                );
-
-
-
-                /* Delete */
-
-                const deleteInput =
-                    document.createElement('input');
-
-                deleteInput.type =
-                    'hidden';
-
-                deleteInput.name =
-                    'candidate_ids[]';
-
-                deleteInput.value =
-                    checkbox.value;
-
-
-                selectedCandidatesDelete.appendChild(
-                    deleteInput
-                );
-
+            // Export
+            if (selectedCandidatesExport) {
+                const exportInput = document.createElement('input');
+                exportInput.type = 'hidden';
+                exportInput.name = 'candidate_ids[]';
+                exportInput.value = id;
+                selectedCandidatesExport.appendChild(exportInput);
             }
-        );
+        });
 
     }
 
@@ -1261,31 +1780,26 @@ document.addEventListener('DOMContentLoaded', function () {
 
     function resetSelection() {
 
-        selectedCandidates.innerHTML =
-            '';
+        selectedCandidateIds.clear();
+        saveSelectedIdsToStorage();
 
-        selectedCandidatesDelete.innerHTML =
-            '';
+        selectedCandidates.innerHTML = '';
+        selectedCandidatesDelete.innerHTML = '';
+        if (selectedCandidatesExport) selectedCandidatesExport.innerHTML = '';
 
+        selectionStatus.textContent = '0 CVs selected';
 
-        selectionStatus.textContent =
-            '0 CVs selected';
-
-
-        downloadButton.disabled =
-            true;
-
-
-        deleteButton.disabled =
-            true;
-
+        downloadButton.disabled = true;
+        deleteButton.disabled = true;
+        if (exportButton) exportButton.disabled = true;
 
         if (selectAllCheckbox) {
-
-            selectAllCheckbox.checked =
-                false;
-
+            selectAllCheckbox.checked = false;
+            selectAllCheckbox.indeterminate = false;
         }
+
+        // Uncheck visible boxes
+        document.querySelectorAll('.row-checkbox').forEach(cb => cb.checked = false);
 
     }
 
@@ -1297,22 +1811,20 @@ document.addEventListener('DOMContentLoaded', function () {
 
     function toggleAllCheckboxes(source) {
 
-        const checkboxes =
-            document.querySelectorAll(
-                '.row-checkbox'
-            );
+        const checkboxes = Array.from(document.querySelectorAll('.row-checkbox'));
 
+        if (source.checked) {
+            // add visible IDs to global set
+            checkboxes.forEach(cb => selectedCandidateIds.add(cb.value));
+        } else {
+            // remove visible IDs from global set
+            checkboxes.forEach(cb => selectedCandidateIds.delete(cb.value));
+        }
 
-        checkboxes.forEach(
-            function (checkbox) {
+        // reflect on page
+        checkboxes.forEach(cb => cb.checked = source.checked);
 
-                checkbox.checked =
-                    source.checked;
-
-            }
-        );
-
-
+        saveSelectedIdsToStorage();
         updateSelection();
 
     }
@@ -1347,6 +1859,252 @@ document.addEventListener('DOMContentLoaded', function () {
 
         return div.innerHTML;
 
+    }
+
+
+    /* ============================================================
+       EDIT MODAL
+    ============================================================ */
+
+    function createEditModal() {
+        if (document.getElementById('edit-modal')) return;
+
+        const modal = document.createElement('div');
+        modal.id = 'edit-modal';
+        modal.className = 'fixed inset-0 z-50 flex items-center justify-center bg-black/40 hidden';
+        modal.innerHTML = `
+            <div class="bg-white rounded-lg shadow-lg w-full max-w-lg mx-4">
+                <div class="p-4 border-b flex items-center justify-between">
+                    <h3 class="font-semibold">Edit Candidate</h3>
+                    <button id="edit-modal-close" class="text-slate-500 hover:text-slate-700">✕</button>
+                </div>
+                <div class="p-4 overflow-y-auto max-h-[70vh]">
+                <form id="edit-form" class="space-y-3">
+                    <input type="hidden" name="id" id="edit-id">
+                    <div class="grid grid-cols-2 gap-3">
+                        <div>
+                            <label class="text-xs text-slate-600">Full name</label>
+                            <input id="edit-full_name" name="full_name" class="w-full px-3 py-2 border rounded" />
+                        </div>
+                        <div>
+                            <label class="text-xs text-slate-600">Profession</label>
+                            <input id="edit-profession" name="profession" class="w-full px-3 py-2 border rounded" />
+                        </div>
+                        <div>
+                            <label class="text-xs text-slate-600">Email</label>
+                            <input id="edit-email" name="email" class="w-full px-3 py-2 border rounded" />
+                        </div>
+                        <div>
+                            <label class="text-xs text-slate-600">Phone</label>
+                            <input id="edit-phone" name="phone" class="w-full px-3 py-2 border rounded" />
+                        </div>
+                    </div>
+                    <div>
+                        <label class="text-xs text-slate-600">Education</label>
+                        <textarea id="edit-education" name="education" rows="3" class="w-full px-3 py-2 border rounded"></textarea>
+                    </div>
+                    <div>
+                        <label class="text-xs text-slate-600">Skills (comma separated)</label>
+                        <input id="edit-skills" name="skills" class="w-full px-3 py-2 border rounded" placeholder="e.g. PHP, Laravel, MySQL" />
+                    </div>
+
+                    <div>
+                        <label class="text-xs text-slate-600">Relevant Jobs (comma separated)</label>
+                        <input id="edit-relevant_jobs" name="relevant_jobs" class="w-full px-3 py-2 border rounded" placeholder="e.g. Frontend Developer, Backend Developer" />
+                    </div>
+                    <div>
+                        <label class="text-xs text-slate-600">Remarks (private)</label>
+                        <textarea id="edit-remarks" name="remarks" rows="2" class="w-full px-3 py-2 border rounded" placeholder="Internal remark for this candidate (not displayed publicly)"></textarea>
+                    </div>
+                    <div>
+                        <label class="text-xs text-slate-600">Experiences</label>
+                        <div id="experiences-list" class="space-y-3">
+                            <!-- experience rows inserted here -->
+                        </div>
+                        <button type="button" id="add-experience" class="mt-2 px-3 py-1 text-sm bg-slate-100 rounded">Add Experience</button>
+                    </div>
+                    <div class="flex items-center justify-end gap-2">
+                        <button type="button" id="edit-cancel" class="px-4 py-2 bg-slate-100 rounded">Cancel</button>
+                        <button type="submit" id="edit-save" class="px-4 py-2 bg-indigo-600 text-white rounded">Save</button>
+                    </div>
+                </form>
+                </div>
+            </div>
+        `;
+
+        document.body.appendChild(modal);
+
+        // Close handlers
+        document.getElementById('edit-modal-close').addEventListener('click', closeEditModal);
+        document.getElementById('edit-cancel').addEventListener('click', closeEditModal);
+
+        document.getElementById('edit-form').addEventListener('submit', function (e) {
+            e.preventDefault();
+            submitEditForm();
+        });
+
+        // Add experience row handler
+        document.getElementById('add-experience').addEventListener('click', function () {
+            addExperienceRow();
+        });
+
+        // Delegated remove for experience rows
+        document.getElementById('experiences-list').addEventListener('click', function (e) {
+            const btn = e.target.closest('.remove-experience');
+            if (btn) {
+                const row = btn.closest('.experience-row');
+                if (row) row.remove();
+            }
+        });
+    }
+
+    function openEditModal(id) {
+        createEditModal();
+        const modal = document.getElementById('edit-modal');
+        modal.classList.remove('hidden');
+
+        // fetch candidate data
+        fetch(`/admin/candidates/${id}`, { headers: { 'Accept': 'application/json' } })
+            .then(r => r.json())
+            .then(data => {
+                document.getElementById('edit-id').value = data.id || '';
+                document.getElementById('edit-full_name').value = data.full_name || '';
+                document.getElementById('edit-email').value = data.email || '';
+                document.getElementById('edit-phone').value = data.phone || '';
+                document.getElementById('edit-profession').value = data.profession || '';
+                document.getElementById('edit-education').value = data.education || '';
+                document.getElementById('edit-remarks').value = data.remarks || '';
+                // populate skills and relevant jobs as comma-separated values
+            // Skills can be array of objects or array of strings
+            if (data.skills && data.skills.length) {
+                if (typeof data.skills[0] === 'string') {
+                    document.getElementById('edit-skills').value = data.skills.join(', ');
+                } else {
+                    document.getElementById('edit-skills').value = data.skills.map(s => s.skill || s.name || '').filter(Boolean).join(', ');
+                }
+            } else {
+                document.getElementById('edit-skills').value = '';
+            }
+
+            if (data.relevantJobs && data.relevantJobs.length) {
+                if (typeof data.relevantJobs[0] === 'string') {
+                    document.getElementById('edit-relevant_jobs').value = data.relevantJobs.join(', ');
+                } else {
+                    document.getElementById('edit-relevant_jobs').value = data.relevantJobs.map(j => j.title || j.name || '').filter(Boolean).join(', ');
+                }
+            } else {
+                document.getElementById('edit-relevant_jobs').value = '';
+            }
+
+            // populate experiences into editable rows
+            populateExperiences(data.experiences || []);
+            })
+            .catch(err => {
+                alert('Unable to load candidate data.');
+                closeEditModal();
+            });
+    }
+
+    function addExperienceRow(data = {}) {
+        const list = document.getElementById('experiences-list');
+        const idx = Date.now();
+        const row = document.createElement('div');
+        row.className = 'experience-row p-2 border rounded space-y-2';
+        row.innerHTML = `
+            <div class="flex items-center justify-between">
+                <strong class="text-sm">Experience</strong>
+                <button type="button" class="remove-experience text-red-500 text-sm">Remove</button>
+            </div>
+            <div class="grid grid-cols-2 gap-2">
+                <input type="text" name="job_title" placeholder="Job title" class="exp-job w-full px-2 py-1 border rounded" value="${escapeHtml(data.job_title || '')}" />
+                <input type="text" name="company" placeholder="Company" class="exp-company w-full px-2 py-1 border rounded" value="${escapeHtml(data.company || '')}" />
+            </div>
+            <div class="grid grid-cols-2 gap-2">
+                <input type="text" name="duration" placeholder="Duration" class="exp-duration w-full px-2 py-1 border rounded" value="${escapeHtml(data.duration || '')}" />
+            </div>
+            <div>
+                <textarea name="description" placeholder="Description" class="exp-description w-full px-2 py-1 border rounded" rows="3">${escapeHtml(data.description || '')}</textarea>
+            </div>
+        `;
+        list.appendChild(row);
+        return row;
+    }
+
+    function populateExperiences(arr) {
+        const list = document.getElementById('experiences-list');
+        list.innerHTML = '';
+        if (!Array.isArray(arr) || arr.length === 0) return;
+        arr.forEach(function (e) {
+            // e might be string or object
+            if (typeof e === 'string') {
+                addExperienceRow({ description: e });
+            } else {
+                addExperienceRow({ job_title: e.job_title || '', company: e.company || '', duration: e.duration || '', description: e.description || '' });
+            }
+        });
+    }
+
+    function closeEditModal() {
+        const modal = document.getElementById('edit-modal');
+        if (modal) modal.classList.add('hidden');
+    }
+
+    function submitEditForm() {
+        const id = document.getElementById('edit-id').value;
+        const payload = {
+            full_name: document.getElementById('edit-full_name').value,
+            email: document.getElementById('edit-email').value,
+            phone: document.getElementById('edit-phone').value,
+            profession: document.getElementById('edit-profession').value,
+            education: document.getElementById('edit-education').value,
+            remarks: document.getElementById('edit-remarks').value,
+            skills: document.getElementById('edit-skills').value,
+            relevant_jobs: document.getElementById('edit-relevant_jobs').value,
+        };
+
+        // collect experiences from rows
+        const experiences = [];
+        document.querySelectorAll('.experience-row').forEach(function (row) {
+            experiences.push({
+                job_title: row.querySelector('.exp-job') ? row.querySelector('.exp-job').value : '',
+                company: row.querySelector('.exp-company') ? row.querySelector('.exp-company').value : '',
+                duration: row.querySelector('.exp-duration') ? row.querySelector('.exp-duration').value : '',
+                description: row.querySelector('.exp-description') ? row.querySelector('.exp-description').value : '',
+            });
+        });
+
+        payload.experiences = experiences;
+
+        const token = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
+
+        fetch(`/admin/candidates/${id}/update`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json',
+                'X-CSRF-TOKEN': token
+            },
+            body: JSON.stringify(payload)
+        })
+        .then(r => r.json().then(j => ({ ok: r.ok, status: r.status, body: j })))
+        .then(result => {
+            if (!result.ok) {
+                if (result.status === 422 && result.body.errors) {
+                    alert('Validation error: ' + JSON.stringify(result.body.errors));
+                } else {
+                    alert('Update failed');
+                }
+                return;
+            }
+
+            // success — refresh page to reflect changes
+            closeEditModal();
+            location.reload();
+        })
+        .catch(err => {
+            console.error(err);
+            alert('Update failed');
+        });
     }
 
 
@@ -1403,6 +2161,56 @@ function confirmDeleteSelected() {
 }
 
 
+        // Delegated toggles for both server-rendered and dynamically inserted rows
+        document.addEventListener('click', function (event) {
+                        // (edit handler moved into DOMContentLoaded scope where openEditModal is defined)
+
+            const expBtn = event.target.closest('.exp-toggle');
+            if (expBtn) {
+                const id = expBtn.dataset.id;
+                const more = document.getElementById(`exp-more-${id}`);
+                if (more) {
+                    more.classList.toggle('hidden');
+                    expBtn.textContent = more.classList.contains('hidden') ? 'Read more' : 'Read less';
+                }
+                return;
+            }
+
+            const skillsBtn = event.target.closest('.skills-toggle');
+            if (skillsBtn) {
+                const id = skillsBtn.dataset.id;
+                const more = document.getElementById(`skills-more-${id}`);
+                if (more) {
+                    more.classList.toggle('hidden');
+                    skillsBtn.textContent = more.classList.contains('hidden') ? `+${more.querySelectorAll('span').length} more` : 'Read less';
+                }
+                return;
+            }
+
+            const relBtn = event.target.closest('.relevant-toggle');
+            if (relBtn) {
+                const id = relBtn.dataset.id;
+                const more = document.getElementById(`relevant-more-${id}`);
+                if (more) {
+                    more.classList.toggle('hidden');
+                    relBtn.textContent = more.classList.contains('hidden') ? `+${more.querySelectorAll('span').length} more` : 'Read less';
+                }
+                return;
+            }
+
+            const eduBtn = event.target.closest('.education-toggle');
+            if (eduBtn) {
+                const id = eduBtn.dataset.id;
+                const more = document.getElementById(`education-more-${id}`);
+                if (more) {
+                    more.classList.toggle('hidden');
+                    eduBtn.textContent = more.classList.contains('hidden') ? `+${more.querySelectorAll('span').length} more` : 'Read less';
+                }
+                return;
+            }
+
+        });
+
 
 /* ================================================================
    SIDEBAR
@@ -1434,36 +2242,48 @@ document.addEventListener(
         }
 
 
+        const mainContent = document.getElementById('main-content');
+
         toggleButton.addEventListener(
             'click',
             function () {
-
 
                 sidebar.classList.toggle(
                     '-translate-x-full'
                 );
 
+                // when collapsed, hide horizontal overflow and remove left offset
+                if (sidebar.classList.contains('-translate-x-full')) {
+                    toggleButton.innerHTML = '›';
+                    toggleButton.title = 'Open Sidebar';
 
-                if (
-                    sidebar.classList.contains(
-                        '-translate-x-full'
-                    )
-                ) {
+                    // Make sidebar fixed and off-screen so it does not reserve layout width
+                    sidebar.style.position = 'fixed';
+                    sidebar.style.top = '0';
+                    sidebar.style.left = '0';
+                    sidebar.style.height = '100%';
+                    sidebar.style.zIndex = '40';
+                    sidebar.style.transform = 'translateX(-110%)';
 
-                    toggleButton.innerHTML =
-                        '›';
-
-                    toggleButton.title =
-                        'Open Sidebar';
+                    // Prevent x-axis scrollbar and remove left offset
+                    document.documentElement.style.overflowX = 'hidden';
+                    if (mainContent) mainContent.style.marginLeft = '0';
 
                 } else {
 
-                    toggleButton.innerHTML =
-                        '‹';
+                    toggleButton.innerHTML = '‹';
+                    toggleButton.title = 'Collapse Sidebar';
 
-                    toggleButton.title =
-                        'Collapse Sidebar';
+                    // Restore sidebar positioning
+                    sidebar.style.position = '';
+                    sidebar.style.top = '';
+                    sidebar.style.left = '';
+                    sidebar.style.height = '';
+                    sidebar.style.zIndex = '';
+                    sidebar.style.transform = '';
 
+                    document.documentElement.style.overflowX = '';
+                    if (mainContent) mainContent.style.marginLeft = '';
                 }
 
             }
