@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 
 class Candidate extends Model
 {
@@ -14,6 +15,7 @@ class Candidate extends Model
         'profession',
         'experience',
         'education',
+        'remarks',
         'cv_file',
         'cv_original_name',
         'cv_mime_type',
@@ -27,5 +29,13 @@ class Candidate extends Model
     public function experiences(): HasMany
     {
         return $this->hasMany(CandidateExperience::class);
+    }
+
+    public function relevantJobs(): BelongsToMany
+    {
+        return $this->belongsToMany(
+            RelevantJob::class,
+            'candidate_relevant_job'
+        )->withTimestamps();
     }
 }

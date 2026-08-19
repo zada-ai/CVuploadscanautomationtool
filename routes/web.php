@@ -23,8 +23,8 @@ Route::get('/', function () {
 | Home Redirect
 |--------------------------------------------------------------------------
 |
-| Laravel Fortify login ke baad agar /home par bhej raha hai,
-| to /home ko admin dashboard par redirect kar denge.
+| Fortify login ke baad agar /home par redirect kare,
+| to authenticated user ko admin dashboard par bhej denge.
 |
 */
 
@@ -51,7 +51,7 @@ Route::post('/cv/upload', [CvController::class, 'upload'])
 | Admin Routes
 |--------------------------------------------------------------------------
 |
-| Ye routes sirf authenticated users ke liye hain.
+| Ye tamam routes sirf authenticated users ke liye hain.
 |
 */
 
@@ -63,16 +63,43 @@ Route::middleware('auth')->group(function () {
     |--------------------------------------------------------------------------
     */
 
-    Route::get('/admin', function () {
+    Route::get('/admin', function (\Illuminate\Http\Request $request) {
 
-        $candidates = Candidate::with([
+        $query = Candidate::with([
             'skills',
-            'experiences'
-        ])
-            ->latest()
-            ->get();
+            'experiences',
+            'relevantJobs'
+        ])->latest();
 
-        return view('admin', compact('candidates'));
+        // Search filter
+        $search = trim($request->input('search', ''));
+        if ($search !== '') {
+            $query->where(function ($q) use ($search) {
+                $q->where('full_name', 'LIKE', "%{$search}%")
+                    ->orWhere('email', 'LIKE', "%{$search}%")
+                    ->orWhere('phone', 'LIKE', "%{$search}%")
+                    ->orWhere('profession', 'LIKE', "%{$search}%")
+                    ->orWhere('experience', 'LIKE', "%{$search}%")
+                    ->orWhere('education', 'LIKE', "%{$search}%")
+                    ->orWhereHas('skills', function ($skillQuery) use ($search) {
+                        $skillQuery->where('skill', 'LIKE', "%{$search}%");
+                    })
+                    ->orWhereHas('relevantJobs', function ($jobQuery) use ($search) {
+                        $jobQuery->where('title', 'LIKE', "%{$search}%");
+                    });
+            });
+        }
+
+        // Today filter
+        if ($request->input('filter') === 'today') {
+            $query->whereDate('created_at', today());
+        }
+
+        $candidates = $query->paginate(10)->withQueryString();
+
+        $todayCount = Candidate::whereDate('created_at', today())->count();
+
+        return view('admin', compact('candidates', 'todayCount'));
 
     })->name('admin.dashboard');
 
@@ -100,11 +127,35 @@ Route::middleware('auth')->group(function () {
         [CandidateDownloadController::class, 'downloadZip']
     )->name('admin.candidates.download.zip');
 
+    Route::post(
+        '/admin/candidates/export',
+        [CandidateDownloadController::class, 'exportSelected']
+    )->name('admin.candidates.export.selected');
+
+    Route::get(
+        '/admin/candidates/export-all',
+        [CandidateDownloadController::class, 'exportAll']
+    )->name('admin.candidates.export.all');
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | Delete Selected Candidates
+    |--------------------------------------------------------------------------
+    */
+
+    Route::post(
+        '/admin/candidates/delete',
+        [CandidateDownloadController::class, 'deleteSelected']
+    )->name('admin.candidates.delete');
+
+    // Get candidate JSON for editing
+    Route::get('/admin/candidates/{id}', [CandidateDownloadController::class, 'getCandidate'])->name('admin.candidates.get');
+
+    // Update candidate (AJAX)
+    Route::post('/admin/candidates/{id}/update', [CandidateDownloadController::class, 'updateCandidate'])->name('admin.candidates.update');
+
 });
-Route::post('/admin/candidates/delete', [
-    CandidateDownloadController::class,
-    'deleteSelected'
-])->name('admin.candidates.delete');
 
 
 /*
